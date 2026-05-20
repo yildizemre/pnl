@@ -25,10 +25,11 @@ if [ -f /etc/systemd/system/hypevision-api.service ]; then
   echo "API: $(systemctl is-active hypevision-api)"
 fi
 
-# nginx root
-if [ -f /etc/nginx/sites-available/hypevision ]; then
-  sudo sed -i "s|root .*dist;|root $PROJECT/dist;|" /etc/nginx/sites-available/hypevision
+# nginx (domain config şablonundan)
+if command -v nginx >/dev/null 2>&1 && [ -f deploy/nginx-hypevision.conf ]; then
+  sudo sed "s|/root/hp-pan|$PROJECT|g" deploy/nginx-hypevision.conf | sudo tee /etc/nginx/sites-available/hypevision >/dev/null
+  sudo ln -sf /etc/nginx/sites-available/hypevision /etc/nginx/sites-enabled/hypevision
   sudo nginx -t && sudo systemctl reload nginx
 fi
 
-echo "Bitti. http://$(hostname -I | awk '{print $1}')/"
+echo "Bitti. https://panel.hypevisionlab.com/ (SSL: sudo ./deploy/setup-domain-ssl.sh)"

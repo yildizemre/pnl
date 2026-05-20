@@ -65,7 +65,7 @@ if command -v nginx >/dev/null 2>&1; then
   sudo ln -sf "$NGINX_CONF" /etc/nginx/sites-enabled/hypevision
   sudo rm -f /etc/nginx/sites-enabled/default 2>/dev/null || true
   sudo nginx -t && sudo systemctl reload nginx
-  echo "[5] nginx aktif — http://SUNUCU_IP/"
+  echo "[5] nginx aktif — panel.hypevisionlab.com (SSL: ./deploy/setup-domain-ssl.sh)"
 else
   echo "[!] nginx yok. Kur: sudo apt update && sudo apt install -y nginx"
   echo "    Geçici test: cd backend && ../venv/bin/python -m uvicorn main:app --host 0.0.0.0 --port 8000"
@@ -77,8 +77,8 @@ curl -sf http://127.0.0.1:8000/docs >/dev/null && echo "[6] API yanıt veriyor �
 
 echo ""
 echo "============================================"
-echo "  Panel:  http://$(curl -s ifconfig.me 2>/dev/null || echo SUNUCU_IP)/"
-echo "  Admin:  admin@vislivis.com / admin"
+echo "  Panel:  https://panel.hypevisionlab.com/  (SSL: ./deploy/setup-domain-ssl.sh)"
+echo "  Admin:  admin@hypevisionlab.com / admin"
 echo "  Demo:   demo@hypevisionlab.com / demo"
 echo "  Log:    journalctl -u hypevision-api -f"
 echo "============================================"
