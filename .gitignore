@@ -9,3 +9,6 @@ backend/uploads/*
 .env
 *.pyc
 .DS_Store
+deploy/.webhook-secret
+deploy/deploy.env
+deploy/logs/

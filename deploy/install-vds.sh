@@ -9,10 +9,29 @@ cd "$PROJECT_DIR"
 echo "=== HypeVision VDS kurulum ==="
 echo "Proje: $PROJECT_DIR"
 
-# --- Python venv ---
+# --- Python venv (3.10+ tercih; 3.8'de asyncio.to_thread yok) ---
+PYTHON=""
+for candidate in python3.12 python3.11 python3.10 python3; do
+  if command -v "$candidate" >/dev/null 2>&1; then
+    ver=$("$candidate" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
+    major=${ver%%.*}
+    minor=${ver#*.}
+    if [ "$major" -gt 3 ] || { [ "$major" -eq 3 ] && [ "$minor" -ge 9 ]; }; then
+      PYTHON=$candidate
+      break
+    fi
+    [ -z "$PYTHON" ] && PYTHON=$candidate
+  fi
+done
+if [ -z "$PYTHON" ]; then
+  echo "[!] python3 bulunamadı"
+  exit 1
+fi
+echo "[*] Python: $PYTHON ($($PYTHON --version 2>&1))"
+
 if [ ! -d "$PROJECT_DIR/venv" ]; then
   echo "[1] Python venv oluşturuluyor..."
-  python3 -m venv "$PROJECT_DIR/venv"
+  "$PYTHON" -m venv "$PROJECT_DIR/venv"
 fi
 # shellcheck disable=SC1091
 source "$PROJECT_DIR/venv/bin/activate"
@@ -80,6 +99,18 @@ fi
 # İlk seed
 sleep 2
 curl -sf http://127.0.0.1:8000/docs >/dev/null && echo "[6] API yanıt veriyor ✓" || echo "[!] API kontrol: journalctl -u hypevision-api -n 30"
+
+# --- Otomatik deploy (GitHub webhook) ---
+if [ -f "$PROJECT_DIR/deploy/setup-auto-deploy.sh" ]; then
+  chmod +x "$PROJECT_DIR/deploy/setup-auto-deploy.sh" "$PROJECT_DIR/deploy/auto-deploy.sh" 2>/dev/null || true
+  if [ ! -f "$PROJECT_DIR/deploy/deploy.env" ]; then
+    echo "[7] GitHub webhook deploy kuruluyor..."
+    "$PROJECT_DIR/deploy/setup-auto-deploy.sh" || echo "[!] Webhook kurulumu atlandı"
+  else
+    systemctl restart hypevision-deploy-webhook 2>/dev/null || true
+    echo "[7] Webhook deploy servisi: $(systemctl is-active hypevision-deploy-webhook 2>/dev/null || echo 'kurulmadı')"
+  fi
+fi
 
 echo ""
 echo "============================================"

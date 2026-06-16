@@ -169,6 +169,14 @@ async def _ws_push_loop():
             await manager.send_user(uid, payload)
 
 
+async def _run_in_thread(fn):
+    """Python 3.8 uyumluluğu — asyncio.to_thread 3.9+."""
+    if hasattr(asyncio, "to_thread"):
+        return await asyncio.to_thread(fn)
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, fn)
+
+
 def _run_background_seeds():
     """Ağır demo veri yükleme — girişi bloklamasın diye arka planda."""
     try:
@@ -221,7 +229,7 @@ def _ensure_admin_quick():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     _ensure_admin_quick()
-    seed_task = asyncio.create_task(asyncio.to_thread(_run_background_seeds))
+    seed_task = asyncio.create_task(_run_in_thread(_run_background_seeds))
     task = asyncio.create_task(_ws_push_loop())
     yield
     seed_task.cancel()
