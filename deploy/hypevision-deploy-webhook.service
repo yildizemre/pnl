@@ -8,7 +8,7 @@ User=root
 WorkingDirectory=/home/pnl
 EnvironmentFile=-/home/pnl/deploy/deploy.env
 Environment=PYTHONUNBUFFERED=1
-ExecStart=/home/pnl/venv/bin/python /home/pnl/deploy/webhook_server.py
+ExecStart=/usr/bin/python3 /home/pnl/deploy/webhook_server.py
 Restart=always
 RestartSec=5
 

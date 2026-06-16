@@ -17,7 +17,7 @@ cd backend && python -c "import main; print('import OK')" && cd ..
 
 if [ -f /etc/systemd/system/hypevision-api.service ]; then
   sudo sed -i "s|WorkingDirectory=.*|WorkingDirectory=$PROJECT/backend|" /etc/systemd/system/hypevision-api.service
-  sudo sed -i "s|ExecStart=.*|ExecStart=$PROJECT/venv/bin/python -m uvicorn main:app --host 127.0.0.1 --port 8000|" /etc/systemd/system/hypevision-api.service
+  sudo sed -i "s|ExecStart=.*|ExecStart=$PROJECT/venv/bin/python3 -m uvicorn main:app --host 127.0.0.1 --port 8000|" /etc/systemd/system/hypevision-api.service
   sudo sed -i "s|EnvironmentFile=.*|EnvironmentFile=-$PROJECT/backend/.env|" /etc/systemd/system/hypevision-api.service
   sudo systemctl daemon-reload
   sudo systemctl restart hypevision-api

@@ -46,6 +46,10 @@ fi
     echo "Zaten güncel ($AFTER)"
   else
     echo "Güncellendi: ${BEFORE:0:8} -> ${AFTER:0:8}"
+    if [ ! -x "$PROJECT_DIR/venv/bin/python3" ]; then
+      echo "venv eksik — yeniden oluşturuluyor..."
+      python3 -m venv "$PROJECT_DIR/venv"
+    fi
     "$PROJECT_DIR/deploy/post-pull.sh"
   fi
 

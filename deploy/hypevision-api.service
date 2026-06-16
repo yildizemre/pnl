@@ -8,7 +8,7 @@ User=root
 WorkingDirectory=/root/hp-pan/backend
 EnvironmentFile=-/root/hp-pan/backend/.env
 Environment=PYTHONUNBUFFERED=1
-ExecStart=/root/hp-pan/venv/bin/python -m uvicorn main:app --host 127.0.0.1 --port 8000
+ExecStart=/root/hp-pan/venv/bin/python3 -m uvicorn main:app --host 127.0.0.1 --port 8000
 Restart=always
 RestartSec=3
 
