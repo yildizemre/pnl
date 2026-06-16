@@ -1,16 +1,32 @@
-import { Camera, ChevronDown, ChevronUp, LayoutDashboard, Package, Settings2, ShieldAlert, Users } from "lucide-react";
+import {
+  Camera, ChevronDown, ChevronUp, Clock, LayoutDashboard, MessageSquare,
+  ShieldAlert,
+} from "lucide-react";
 import {
   Area, AreaChart, Bar, BarChart, CartesianGrid, Cell,
-  Legend, ResponsiveContainer, Tooltip, XAxis, YAxis,
+  ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
-import { useMemo, useState } from "react";
-import { useAuth } from "../context/AuthContext";
+import { useEffect, useMemo, useState } from "react";
+import { useAuth } from "../hooks/useAuth";
 import { useLocale } from "../context/LocaleContext";
 import { translateCategory, localeTag } from "../i18n/helpers";
+import { api } from "../api";
+import { CHART, axisTick, chartTooltipStyle, gridStroke } from "../lib/chartTheme";
+import { computeRiskScore } from "../data/operationsCenter";
 import CompareToggle from "../components/CompareToggle";
+import CameraCapabilityList from "../components/CameraCapabilityList";
+import { EmptyChart } from "../components/EmptyState";
 import { ChartTooltipTraffic, Panel, StatCard } from "../components/ui";
+import FloorPlanCanvas from "../components/experience/FloorPlanCanvas";
+import OperationsTimeline from "../components/experience/OperationsTimeline";
+import AiAssistant from "../components/experience/AiAssistant";
+import { HomeInsightsPanel, HomeSystemPanel } from "../components/operations/VocPanels";
 
-const DEFAULT_LAYOUT = { showKpis: true, showTraffic: true, showNotifChart: true };
+const VIEWS = [
+  { id: "main", icon: LayoutDashboard, labelKey: "homeViewMain" },
+  { id: "timeline", icon: Clock, labelKey: "modeTimeline" },
+  { id: "ai", icon: MessageSquare, labelKey: "modeAssistant" },
+];
 
 function ChangeBadge({ pct }) {
   if (pct == null) return null;
@@ -23,146 +39,183 @@ function ChangeBadge({ pct }) {
   );
 }
 
-export default function HomeView({ data, compare, onCompareChange, onLayoutSave }) {
+export default function HomeView({ data, compare, onCompareChange, onNotificationOpen, mapFocus, onMapFocusClear }) {
   const { t, locale } = useLocale();
   const { user } = useAuth();
-  const [layoutOpen, setLayoutOpen] = useState(false);
-  const layout = { ...DEFAULT_LAYOUT, ...(user?.dashboard_layout || data?.user?.dashboard_layout || {}) };
+  const [view, setView] = useState("main");
+  const [trend, setTrend] = useState([]);
 
-  const [localLayout, setLocalLayout] = useState(layout);
   const s = data.summary;
   const cmp = data.compare;
+  const compareActive = !!compare;
+  const localeCode = localeTag(locale);
+  const risk = useMemo(
+    () => computeRiskScore(s, data.today_notifications || data.notifications),
+    [s, data.today_notifications, data.notifications]
+  );
+
   const stats = (data.notification_stats || []).map((x) => ({
     ...x,
     kategori: translateCategory(locale, x.kategori),
   }));
 
-  const numFmt = (n) => Number(n).toLocaleString(localeTag(locale));
+  useEffect(() => {
+    const tarih = data.dates?.[0];
+    if (!tarih) return;
+    api.reportsKpis(tarih).then((r) => setTrend(r.trend || [])).catch(() => setTrend([]));
+  }, [data.dates, user?.id]);
 
-  const kpis = useMemo(() => {
-    const base = [
-      { key: "kameralar", title: t.kpiAktifKamera, value: <>{s.kameralar.aktif}<span className="text-lg font-normal text-[var(--text-muted)]"> / {s.kameralar.toplam}</span></>, sub: s.kameralar.degisim, accent: "cyan", icon: Camera },
-      { key: "personel", title: t.kpiAktifPersonel, value: s.aktif_personel.sayi, sub: s.aktif_personel.degisim, accent: "blue", icon: Users },
-      { key: "isg", title: t.kpiIsgIhlal, value: s.isg_ihlaller.bugun, sub: s.isg_ihlaller.alt_metin, accent: "red", icon: ShieldAlert },
-      { key: "urun", title: t.kpiUrunSayim, value: numFmt(data.product_counts?.toplam || 0), sub: s.urun_sayim_bugun?.degisim || "", accent: "purple", icon: Package },
-      { key: "verim", title: t.kpiOrtVerimlilik, value: `%${s.hat_verimlilik.ortalama}`, sub: s.hat_verimlilik.alt_metin, accent: "green", icon: LayoutDashboard },
-      { key: "bildirim", title: t.kpiOkunmamisBildirim, value: s.bildirim_sayisi, sub: t.sonBildirimler, accent: "orange", icon: ShieldAlert },
-    ];
-    if (!cmp?.summary) return base;
-    const map = {
-      personel: "aktif_personel",
-      isg: "isg_ihlaller",
-      urun: "urun_sayim",
-      verim: "verimlilik",
-      bildirim: "bildirim",
+  const sparklines = useMemo(() => {
+    const last7 = trend.slice(-7);
+    const pick = (key) => last7.map((row) => row[key]);
+    const camBase = s.kameralar?.toplam ?? 0;
+    if (!last7.length) {
+      return { kameralar: [], personel: [], isg: [], verim: [] };
+    }
+    return {
+      kameralar: last7.map(() => camBase),
+      personel: pick("verimlilik").map((v) => Math.round((v || 0) * 0.42)),
+      isg: pick("bildirim_sayisi").map((v) => Math.max(0, v || 0)),
+      verim: pick("verimlilik"),
     };
-    return base.map((k) => {
-      const ck = map[k.key];
-      const c = cmp.summary[ck];
-      if (!c) return k;
-      return {
-        ...k,
-        sub: (
-          <span className="flex flex-wrap items-center gap-2">
-            <span>{t.oncekiDonem}: {c.previous}</span>
-            <ChangeBadge pct={c.change_pct} />
-          </span>
-        ),
-      };
-    });
-  }, [s, data, cmp, t, locale]);
+  }, [trend, s]);
 
-  const trafficData = cmp?.traffic || data.traffic;
-  const hasCompareTraffic = cmp?.traffic?.some((x) => x.kisi_once != null);
-
-  const saveLayout = () => {
-    onLayoutSave?.(localLayout);
-    setLayoutOpen(false);
-  };
+  const riskLabel = locale === "EN"
+    ? (risk.level === "low" ? "Low risk" : risk.level === "mid" ? "Medium risk" : "High risk")
+    : (risk.level === "low" ? "Düşük risk" : risk.level === "mid" ? "Orta risk" : "Yüksek risk");
 
   return (
-    <>
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <CompareToggle value={compare || ""} onChange={onCompareChange} />
-        <button type="button" onClick={() => setLayoutOpen(!layoutOpen)} className="btn-ghost self-start sm:self-auto">
-          <Settings2 className="h-4 w-4" />
-          {t.dashboardDuzenle}
-        </button>
+    <div className="dash-home">
+      <div className="dash-home-bar">
+        <CompareToggle value={compare} onChange={onCompareChange} />
+        <div className="dash-view-pills" role="tablist">
+          {VIEWS.map(({ id, icon: Icon, labelKey }) => (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              aria-selected={view === id}
+              className={view === id ? "dash-pill dash-pill--active" : "dash-pill"}
+              onClick={() => setView(id)}
+            >
+              <Icon className="h-3.5 w-3.5 shrink-0" />
+              <span>{t[labelKey]}</span>
+            </button>
+          ))}
+        </div>
       </div>
 
-      {layoutOpen && (
-        <div className="panel panel-body flex flex-wrap gap-4">
-          {[
-            { key: "showKpis", label: t.layoutKpi },
-            { key: "showTraffic", label: t.layoutTraffic },
-            { key: "showNotifChart", label: t.layoutCharts },
-          ].map(({ key, label }) => (
-            <label key={key} className="flex cursor-pointer items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={localLayout[key] !== false}
-                onChange={(e) => setLocalLayout({ ...localLayout, [key]: e.target.checked })}
-                className="rounded border-[var(--border)]"
+      {view === "main" && (
+        <>
+          <section className="dash-kpi-row" aria-label={t.kpiOzet}>
+            <StatCard
+              title={t.kpiAktifKamera}
+              value={<>{s.kameralar.aktif} <span className="text-lg font-normal text-[var(--text-muted)]">/ {s.kameralar.toplam}</span></>}
+              subtitle={compareActive && cmp?.kameralar?.degisim_pct != null ? <ChangeBadge pct={cmp.kameralar.degisim_pct} /> : s.kameralar.degisim}
+              icon={Camera}
+              accent="cyan"
+              sparkline={sparklines.kameralar}
+              compareActive={compareActive}
+            />
+            <StatCard
+              title={t.kpiIsgIhlal}
+              value={s.isg_ihlaller.bugun}
+              subtitle={`${t.vocRiskScore}: ${risk.score}/100 · ${riskLabel}`}
+              icon={ShieldAlert}
+              accent="red"
+              sparkline={sparklines.isg}
+              compareActive={compareActive}
+            />
+            <StatCard
+              title={t.kpiOrtVerimlilik}
+              value={s.hat_verimlilik.ortalama != null ? `%${s.hat_verimlilik.ortalama}` : "—"}
+              subtitle={s.hat_verimlilik.alt_metin}
+              icon={LayoutDashboard}
+              accent="green"
+              sparkline={sparklines.verim}
+              counter={s.hat_verimlilik.ortalama ?? undefined}
+              counterSuffix="%"
+              compareActive={compareActive}
+            />
+          </section>
+
+          <section className="dash-hero">
+            <FloorPlanCanvas
+              notifications={data.notifications}
+              todayNotifications={data.today_notifications}
+              today={data.today}
+              summary={s}
+              floorPlan={data.floor_plan}
+              onNotificationOpen={onNotificationOpen}
+              activeSiteId={mapFocus?.siteId}
+              highlightPointId={mapFocus?.pointId}
+              onHighlightClear={onMapFocusClear}
+            />
+          </section>
+
+          <section className="dash-charts">
+            <Panel title={t.sistemAktivitesi} subtitle={t.son24Saat} badge={<span className="live-pill">{t.canli}</span>}>
+              {(data.traffic || []).length ? (
+                <ResponsiveContainer width="100%" height={200}>
+                  <AreaChart data={data.traffic}>
+                    <defs>
+                      <linearGradient id="dashTrafficGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor={CHART.emerald} stopOpacity={0.35} />
+                        <stop offset="100%" stopColor={CHART.emerald} stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} vertical={false} />
+                    <XAxis dataKey="saat" tick={axisTick} axisLine={false} tickLine={false} />
+                    <YAxis tick={axisTick} axisLine={false} tickLine={false} />
+                    <Tooltip content={<ChartTooltipTraffic />} />
+                    <Area type="monotone" dataKey="kisi" stroke={CHART.emerald} strokeWidth={2} fill="url(#dashTrafficGrad)" />
+                  </AreaChart>
+                </ResponsiveContainer>
+              ) : (
+                <EmptyChart />
+              )}
+            </Panel>
+
+            <Panel title={t.bildirimler} subtitle={t.tumKategoriler}>
+              {stats.length ? (
+                <ResponsiveContainer width="100%" height={200}>
+                  <BarChart data={stats}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} vertical={false} />
+                    <XAxis dataKey="kategori" tick={axisTick} axisLine={false} tickLine={false} />
+                    <YAxis tick={axisTick} axisLine={false} tickLine={false} />
+                    <Tooltip contentStyle={chartTooltipStyle()} />
+                    <Bar dataKey="adet" radius={[6, 6, 0, 0]}>
+                      {stats.map((row) => <Cell key={row.kategori} fill={row.renk} />)}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <EmptyChart />
+              )}
+            </Panel>
+          </section>
+
+          <section className="dash-footer">
+            <HomeInsightsPanel data={data} />
+            <Panel title={t.kameraOzellikler} subtitle={t.kameraKonum} className="dash-footer-cameras">
+              <CameraCapabilityList
+                trackedCameras={data.tracked_cameras}
+                floorPlan={data.floor_plan}
+                compact
               />
-              {label}
-            </label>
-          ))}
-          <div className="flex gap-2 w-full sm:w-auto sm:ml-auto">
-            <button type="button" onClick={() => setLayoutOpen(false)} className="btn-ghost">{t.iptal}</button>
-            <button type="button" onClick={saveLayout} className="btn-primary">{t.kaydet}</button>
-          </div>
-        </div>
+            </Panel>
+            <HomeSystemPanel data={data} />
+          </section>
+        </>
       )}
 
-      {localLayout.showKpis !== false && (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {kpis.map((k) => (
-            <StatCard key={k.key} title={k.title} value={k.value} subtitle={k.sub} subtitleClass="text-[var(--accent)]" icon={k.icon} accent={k.accent} />
-          ))}
-        </div>
+      {view === "timeline" && (
+        <OperationsTimeline notifications={data.notifications} />
       )}
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        {localLayout.showTraffic !== false && (
-          <Panel title={t.sistemAktivitesi} subtitle={hasCompareTraffic ? t.bugunDun : t.son24Saat}>
-            <ResponsiveContainer width="100%" height={240}>
-              <AreaChart data={trafficData}>
-                <defs>
-                  <linearGradient id="homeGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#34d399" stopOpacity={0.4} />
-                    <stop offset="100%" stopColor="#34d399" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false} />
-                <XAxis dataKey="saat" tick={{ fill: "var(--text-muted)", fontSize: 10 }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fill: "var(--text-muted)", fontSize: 10 }} axisLine={false} tickLine={false} />
-                <Tooltip content={<ChartTooltipTraffic />} />
-                {hasCompareTraffic && <Legend />}
-                <Area type="monotone" dataKey="kisi" name={t.simdi} stroke="#34d399" strokeWidth={2} fill="url(#homeGrad)" />
-                {hasCompareTraffic && (
-                  <Area type="monotone" dataKey="kisi_once" name={t.oncekiDonem} stroke="#94a3b8" strokeWidth={2} fill="transparent" strokeDasharray="4 4" />
-                )}
-              </AreaChart>
-            </ResponsiveContainer>
-          </Panel>
-        )}
-
-        {localLayout.showNotifChart !== false && (
-          <Panel title={t.bildirimOzeti} subtitle={t.kategoriDagilimi}>
-            <ResponsiveContainer width="100%" height={240}>
-              <BarChart data={stats}>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false} />
-                <XAxis dataKey="kategori" tick={{ fill: "var(--text-muted)", fontSize: 10 }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fill: "var(--text-muted)", fontSize: 10 }} axisLine={false} tickLine={false} />
-                <Tooltip contentStyle={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8 }} />
-                <Bar dataKey="adet" radius={[6, 6, 0, 0]}>
-                  {(data.notification_stats || []).map((x) => <Cell key={x.kategori} fill={x.renk} />)}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </Panel>
-        )}
-      </div>
-    </>
+      {view === "ai" && (
+        <AiAssistant summary={s} notifications={data.notifications} />
+      )}
+    </div>
   );
 }

@@ -4,46 +4,69 @@ import asyncio
 import shutil
 import uuid
 from contextlib import asynccontextmanager
+from datetime import date
 from pathlib import Path
 from typing import List, Optional
 
-from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, HTTPException, Query, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, model_validator
 
 from auth import create_token, decode_token
 from config import DB_KIND, PUBLIC_WS_INTERVAL
 import store
 from store import (
     MODULES,
-    add_camera,
-    add_notification,
     change_password,
+    count_unread,
+    create_api_key,
     create_user,
-    delete_camera,
+    delete_api_key,
     find_user_by_email,
+    find_user_by_login,
     find_user_by_id,
-    get_cameras,
     hash_password,
     heartbeat_active,
+    list_api_keys,
     list_notifications,
     list_users,
+    mark_all_notifications_read,
+    mark_notification_read,
+    set_notification_feedback,
+    get_notification,
     record_heartbeat,
     delete_user,
+    reset_user_panel_data,
     ensure_admin_seed,
+    ensure_all_panel_seeds,
+    ensure_demo_api_key,
     ensure_demo_seed,
     get_daily_metric,
     metrics_trend,
     notification_stats_for_date,
+    notifications_for_date,
+    build_traffic_from_notifications,
+    build_notification_insights,
+    build_system_health,
+    build_tracked_cameras,
+    build_training_feedback_report,
+    dashboard_summary_for_user,
+    panel_detection_logs,
+    panel_notification_stats,
+    panel_product_counts,
+    get_floor_plan,
+    get_integration_status,
+    save_floor_plan,
     seed_if_empty,
-    update_camera,
     update_user_layout,
     user_public,
     verify_password,
 )
-from demo_data import date_range, kpi_for_date, personnel_for_date, product_for_date
+from services.notifications import build_notification_payload, create_notification, push_notification
+from routes.integrations import router as integrations_router
+from demo_data import date_range, kpi_for_date, mes_productivity_for_date, product_for_date
 from mock_data import (
     AVAILABLE_DATES,
     DASHBOARD_SUMMARY,
@@ -62,13 +85,23 @@ from ws_manager import manager
 security = HTTPBearer(auto_error=False)
 UPLOAD_DIR = Path(__file__).parent / "uploads"
 UPLOAD_DIR.mkdir(exist_ok=True)
-
-_next_mem_id = 1000
+DEMO_KEY_FILE = Path(__file__).parent / "data" / ".demo-api-key"
 
 
 class LoginBody(BaseModel):
-    email: str
+    login: Optional[str] = None
+    email: Optional[str] = None
     password: str
+
+    @model_validator(mode="after")
+    def _identifier_present(self):
+        if not (self.login or self.email or "").strip():
+            raise ValueError("E-posta veya kullanıcı adı gerekli")
+        return self
+
+    @property
+    def identifier(self) -> str:
+        return (self.login or self.email or "").strip()
 
 
 class UserCreate(BaseModel):
@@ -85,13 +118,6 @@ class PasswordChange(BaseModel):
     yeni_sifre: str
 
 
-class CameraBody(BaseModel):
-    ad: str
-    rtsp: str
-    modul: str
-    token: str
-
-
 class HeartbeatBody(BaseModel):
     camera_id: Optional[str] = None
 
@@ -101,10 +127,25 @@ class LayoutBody(BaseModel):
     onboarding_done: Optional[bool] = None
 
 
-class ExportBody(BaseModel):
-    title: str
-    rows: List[dict] = []
-    format: str = "pdf"
+class ApiKeyCreate(BaseModel):
+    label: str = "Entegrasyon"
+
+
+class NotificationReadBody(BaseModel):
+    okundu: bool = True
+
+
+class FeedbackBody(BaseModel):
+    label: str  # evet | hayir
+
+
+class FloorPlanBody(BaseModel):
+    mode: str = "default"
+    background: str = ""
+    points: List[dict] = []
+    sites: Optional[List[dict]] = None
+    active_site_id: Optional[str] = None
+    name: Optional[str] = None
 
 
 async def _ws_push_loop():
@@ -115,30 +156,80 @@ async def _ws_push_loop():
             if not u:
                 continue
             pub = user_public(u)
+            today = date.today().isoformat()
+            floor_plan = get_floor_plan(uid)
+            system_health = build_system_health(uid, floor_plan, today)
             payload = {
                 "type": "dashboard_tick",
-                "summary": _summary_for_user(pub),
-                "unread": len([n for n in list_notifications(uid) if not n.get("okundu")]),
-                "ai_aktif": heartbeat_active(uid),
+                "summary": _summary_for_user(pub, today),
+                "unread": count_unread(uid),
+                "ai_aktif": system_health["ai_aktif"],
+                "system_health": system_health,
             }
             await manager.send_user(uid, payload)
 
 
+def _run_background_seeds():
+    """Ağır demo veri yükleme — girişi bloklamasın diye arka planda."""
+    try:
+        seed_if_empty()
+        ensure_admin_seed()
+        ensure_demo_seed()
+        ensure_all_panel_seeds()
+        demo_key = ensure_demo_api_key()
+        if demo_key:
+            DEMO_KEY_FILE.parent.mkdir(parents=True, exist_ok=True)
+            if not DEMO_KEY_FILE.exists():
+                DEMO_KEY_FILE.write_text(demo_key, encoding="utf-8")
+                print(f"[HypeVision] Demo API anahtarı oluşturuldu → {DEMO_KEY_FILE}")
+        for uid in ["u-demo", "u-emilio", "u-admin", "u-mudur", "u-isg", "u-hype-demo", "u-hype-admin"]:
+            u = find_user_by_id(uid)
+            if u:
+                record_heartbeat(uid, ai_server=True)
+        print("[HypeVision] Demo veri yükleme tamamlandı")
+    except Exception as exc:
+        print(f"[HypeVision] Demo veri yükleme hatası: {exc}")
+
+
+def _ensure_admin_quick():
+    """Giriş için minimum: admin kullanıcısı DB'de olsun."""
+    from models import init_db, UserModel, SessionLocal
+    from demo_data import ADMIN_EMAIL, ADMIN_PASSWORD, ADMIN_USER_ID
+
+    init_db()
+    with SessionLocal() as db:
+        user = db.query(UserModel).filter(UserModel.email == ADMIN_EMAIL.lower()).first()
+        if not user:
+            db.add(
+                UserModel(
+                    id=ADMIN_USER_ID,
+                    kullanici_adi="admin",
+                    ad="Hype Admin",
+                    email=ADMIN_EMAIL.lower(),
+                    sifre_hash=hash_password(ADMIN_PASSWORD),
+                    rol="admin",
+                    kurulum="Hype Vision Lab",
+                    onboarding_done=True,
+                )
+            )
+            db.commit()
+        elif user.rol != "admin":
+            user.rol = "admin"
+            db.commit()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    seed_if_empty()
-    ensure_admin_seed()
-    ensure_demo_seed()
-    for uid in ["u-demo", "u-emilio", "u-admin", "u-mudur", "u-isg", "u-hype-demo", "u-hype-admin"]:
-        u = find_user_by_id(uid)
-        if u:
-            record_heartbeat(uid)
+    _ensure_admin_quick()
+    seed_task = asyncio.create_task(asyncio.to_thread(_run_background_seeds))
     task = asyncio.create_task(_ws_push_loop())
     yield
+    seed_task.cancel()
     task.cancel()
 
 
-app = FastAPI(title="HypeVision API", version="3.0.0", lifespan=lifespan)
+app = FastAPI(title="HypeVision API", version="3.1.0", lifespan=lifespan)
+app.include_router(integrations_router)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -166,33 +257,28 @@ def require_admin(user: dict = Depends(get_current_user)) -> dict:
     return user
 
 
-def _summary_for_user(user: dict) -> dict:
-    cams = user.get("kameralar", [])
-    aktif = len(cams)
-    return {
-        **DASHBOARD_SUMMARY,
-        "kameralar": {"aktif": aktif, "toplam": max(aktif, 16), "degisim": f"{aktif} kurulum kamerası"},
-        "bildirim_sayisi": len([n for n in list_notifications(user["id"]) if not n.get("okundu")]),
-    }
+def _summary_for_user(user: dict, tarih: str | None = None) -> dict:
+    uid = user["id"]
+    today = tarih or date.today().isoformat()
+    floor_plan = get_floor_plan(uid)
+    return dashboard_summary_for_user(uid, floor_plan, today)
 
 
 @app.post("/api/auth/login")
 def login(body: LoginBody):
-    user = find_user_by_email(body.email)
+    user = find_user_by_login(body.identifier)
     if not user:
         raise HTTPException(401, "Email veya şifre hatalı")
     if not verify_password(body.password, user.sifre_hash):
         raise HTTPException(401, "Email veya şifre hatalı")
     uid, email, rol = user.id, user.email, user.rol
-    record_heartbeat(uid)
     token = create_token(uid, email, rol)
     return {"token": token, "user": user_public(user)}
 
 
 @app.get("/api/auth/me")
 def me(user: dict = Depends(get_current_user)):
-    u = find_user_by_id(user["id"])
-    return user_public(u)
+    return user
 
 
 @app.get("/api/meta/roles")
@@ -220,6 +306,14 @@ def add_user(body: UserCreate, _: dict = Depends(require_admin)):
     return user_public(u)
 
 
+@app.post("/api/admin/users/{user_id}/reset-panel-data")
+def admin_reset_panel_data(user_id: str, _: dict = Depends(require_admin)):
+    err = reset_user_panel_data(user_id)
+    if err:
+        raise HTTPException(400, err)
+    return {"ok": True}
+
+
 @app.delete("/api/admin/users/{user_id}")
 def remove_user(user_id: str, admin: dict = Depends(require_admin)):
     if user_id == admin["id"]:
@@ -238,6 +332,74 @@ def impersonate(user_id: str, admin: dict = Depends(require_admin)):
     t = user_public(target)
     token = create_token(t["id"], t["email"], t["rol"], impersonator_id=admin["id"])
     return {"token": token, "user": t}
+
+
+@app.get("/api/admin/users/{user_id}/api-keys")
+def admin_list_api_keys(user_id: str, _: dict = Depends(require_admin)):
+    if not find_user_by_id(user_id):
+        raise HTTPException(404, "Kullanıcı bulunamadı")
+    return {"data": list_api_keys(user_id)}
+
+
+@app.post("/api/admin/users/{user_id}/api-keys")
+def admin_create_api_key(user_id: str, body: ApiKeyCreate, _: dict = Depends(require_admin)):
+    if not find_user_by_id(user_id):
+        raise HTTPException(404, "Kullanıcı bulunamadı")
+    meta, raw = create_api_key(user_id, body.label)
+    return {"ok": True, "key": meta, "api_key": raw, "mesaj": "Anahtarı güvenli yerde saklayın — tekrar gösterilmez"}
+
+
+@app.delete("/api/admin/api-keys/{key_id}")
+def admin_delete_api_key(key_id: str, _: dict = Depends(require_admin)):
+    if not delete_api_key(key_id):
+        raise HTTPException(404, "Anahtar bulunamadı")
+    return {"ok": True}
+
+
+@app.get("/api/floor-plan")
+def user_floor_plan(user: dict = Depends(get_current_user)):
+    plan = get_floor_plan(user["id"])
+    return {"data": plan, "modules": MODULES}
+
+
+@app.get("/api/admin/users/{user_id}/floor-plan")
+def admin_get_floor_plan(user_id: str, _: dict = Depends(require_admin)):
+    if not find_user_by_id(user_id):
+        raise HTTPException(404, "Kullanıcı bulunamadı")
+    return {"data": get_floor_plan(user_id), "modules": MODULES}
+
+
+@app.put("/api/admin/users/{user_id}/floor-plan")
+def admin_save_floor_plan(user_id: str, body: FloorPlanBody, _: dict = Depends(require_admin)):
+    if not find_user_by_id(user_id):
+        raise HTTPException(404, "Kullanıcı bulunamadı")
+    saved = save_floor_plan(user_id, body.model_dump())
+    return {"ok": True, "data": saved}
+
+
+@app.post("/api/admin/users/{user_id}/floor-plan/background")
+async def admin_upload_floor_background(
+    user_id: str,
+    _: dict = Depends(require_admin),
+    image: UploadFile = File(...),
+):
+    if not find_user_by_id(user_id):
+        raise HTTPException(404, "Kullanıcı bulunamadı")
+    ext = Path(image.filename or "plan.jpg").suffix or ".jpg"
+    fname = f"floor-{user_id}-{uuid.uuid4().hex[:8]}{ext}"
+    path = UPLOAD_DIR / fname
+    with path.open("wb") as f:
+        shutil.copyfileobj(image.file, f)
+    url = f"/api/uploads/{fname}"
+    plan = get_floor_plan(user_id)
+    sites = [dict(s) for s in plan.get("sites") or []]
+    aid = plan.get("active_site_id")
+    for i, site in enumerate(sites):
+        if site.get("id") == aid:
+            sites[i] = {**site, "mode": "image", "background": url}
+            break
+    saved = save_floor_plan(user_id, {"sites": sites, "active_site_id": aid})
+    return {"ok": True, "background": url, "data": saved}
 
 
 @app.websocket("/api/ws")
@@ -266,31 +428,94 @@ def heartbeat(body: HeartbeatBody, user: dict = Depends(get_current_user)):
 
 @app.get("/api/system/status")
 def system_status(user: dict = Depends(get_current_user)):
-    aktif = heartbeat_active(user["id"])
+    today = date.today().isoformat()
+    floor_plan = get_floor_plan(user["id"])
+    health = build_system_health(user["id"], floor_plan, today)
     return {
-        "ai_aktif": aktif,
-        "heartbeat": aktif,
-        "mesaj": "AI Sunucu: Aktif" if aktif else "Bağlantı bekleniyor",
+        "ai_aktif": health["ai_aktif"],
+        "heartbeat": health["ai_aktif"],
+        "mesaj": "AI Sunucu: Aktif" if health["ai_aktif"] else "Bağlantı bekleniyor",
         "storage": DB_KIND,
+        "system_health": health,
     }
 
 
-@app.get("/api/cameras/{camera_id}/stream")
-def camera_stream(camera_id: str, user: dict = Depends(get_current_user)):
-    cams = get_cameras(user["id"])
-    cam = next((c for c in cams if c["id"] == camera_id), None)
-    if not cam:
-        raise HTTPException(404, "Kamera bulunamadı")
+@app.get("/api/user/integration")
+def user_integration(request: Request, user: dict = Depends(get_current_user)):
+    base = str(request.base_url).rstrip("/")
+    return get_integration_status(user["id"], base)
+
+
+@app.post("/api/user/integration/test")
+async def user_integration_test(request: Request, user: dict = Depends(get_current_user)):
+    from datetime import datetime, timezone
+
+    record_heartbeat(user["id"], ai_server=True)
+    payload = build_notification_payload(
+        user["id"],
+        baslik="Bağlantı testi",
+        detay="Panelden gönderilen entegrasyon test bildirimi.",
+        kategori="Sistem",
+        seviye="bilgi",
+        kamera="test",
+        modul="Entegrasyon",
+        zaman=datetime.now(timezone.utc).strftime("%H:%M"),
+    )
+    saved = create_notification(user["id"], payload)
+    await push_notification(user["id"], saved)
+    base = str(request.base_url).rstrip("/")
+    today = date.today().isoformat()
+    floor_plan = get_floor_plan(user["id"])
+    health = build_system_health(user["id"], floor_plan, today)
     return {
-        "camera_id": camera_id,
-        "mode": "webrtc_gateway",
-        "signaling_url": f"/api/cameras/{camera_id}/signal",
-        "rtsp_source": cam["rtsp"],
-        "demo_hls": "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8",
-        "poster": "/api/placeholder/camera.jpg",
-        "status": "demo_live",
-        "mesaj": "Demo: RTSP gateway simülasyonu — üretimde MediaMTX/Janus bağlanır",
+        "ok": True,
+        "mesaj": "Test bildirimi gönderildi ve bağlantı güncellendi.",
+        "notification": saved,
+        "integration": get_integration_status(user["id"], base),
+        "system_health": health,
     }
+
+
+@app.get("/api/reports/training-feedback")
+def training_feedback_report(days: int = Query(7, ge=1, le=90), user: dict = Depends(get_current_user)):
+    return build_training_feedback_report(user["id"], days)
+
+
+@app.get("/api/placeholder/{filename}")
+def placeholder_image(filename: str):
+    """Demo bildirim / kamera görselleri için SVG placeholder."""
+    name = (filename or "demo").lower().replace(".jpg", "").replace(".png", "")
+    palette = {
+        "yangin": ("#7f1d1d", "#ef4444", "Yangın"),
+        "yangın": ("#7f1d1d", "#ef4444", "Yangın"),
+        "duman": ("#7c2d12", "#f97316", "Duman"),
+        "dusme": ("#991b1b", "#dc2626", "Düşme"),
+        "düşme": ("#991b1b", "#dc2626", "Düşme"),
+        "yasak": ("#4c1d95", "#8b5cf6", "Yasak Bölge"),
+        "isg": ("#78350f", "#f59e0b", "İSG"),
+        "üretim": ("#4c1d95", "#6366f1", "Üretim"),
+        "uretim": ("#4c1d95", "#6366f1", "Üretim"),
+        "mes": ("#14532d", "#22c55e", "MES"),
+        "kalite": ("#1e3a8a", "#3b82f6", "Kalite"),
+        "sistem": ("#334155", "#64748b", "Sistem"),
+        "camera": ("#0c4a6e", "#38bdf8", "Kamera"),
+    }
+    key = next((k for k in palette if k in name), "sistem")
+    bg, accent, label = palette[key]
+    svg = f"""<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180" viewBox="0 0 320 180">
+      <rect width="320" height="180" fill="{bg}"/>
+      <rect x="16" y="16" width="288" height="148" rx="8" fill="none" stroke="{accent}" stroke-width="2" opacity="0.5"/>
+      <circle cx="160" cy="78" r="28" fill="{accent}" opacity="0.25"/>
+      <text x="160" y="130" text-anchor="middle" fill="#f8fafc" font-family="Arial,sans-serif" font-size="14" font-weight="600">{label}</text>
+      <text x="160" y="150" text-anchor="middle" fill="#94a3b8" font-family="Arial,sans-serif" font-size="10">HypeVision Demo</text>
+    </svg>"""
+    return Response(content=svg, media_type="image/svg+xml")
+
+
+@app.get("/api/notifications/insights")
+def notification_insights(tarih: Optional[str] = None, user: dict = Depends(get_current_user)):
+    key = tarih or date.today().isoformat()
+    return build_notification_insights(user["id"], key)
 
 
 @app.get("/api/notifications/recent")
@@ -301,15 +526,55 @@ def recent_notifications(limit: int = 10, user: dict = Depends(get_current_user)
 
 @app.get("/api/notifications")
 def get_notifications(user: dict = Depends(get_current_user)):
+    uid = user["id"]
+    items = list_notifications(uid)
     return {
-        "data": list_notifications(user["id"]),
+        "data": items,
         "categories": NOTIFICATION_CATEGORIES,
-        "stats": NOTIFICATION_STATS,
+        "stats": panel_notification_stats(uid),
     }
 
 
+@app.patch("/api/notifications/{notification_id}/read")
+def read_notification(notification_id: int, user: dict = Depends(get_current_user)):
+    item = mark_notification_read(notification_id, user["id"])
+    if not item:
+        raise HTTPException(404, "Bildirim bulunamadı")
+    return {"ok": True, "item": item, "unread": count_unread(user["id"])}
+
+
+@app.post("/api/notifications/{notification_id}/feedback")
+def notification_feedback(notification_id: int, body: FeedbackBody, user: dict = Depends(get_current_user)):
+    label = body.label.strip().lower()
+    if label not in ("evet", "hayir"):
+        raise HTTPException(400, "label: evet veya hayir")
+    item = set_notification_feedback(notification_id, user["id"], label)
+    if not item:
+        raise HTTPException(404, "Bildirim bulunamadı")
+    return {"ok": True, "item": item, "training": item.get("feedback"), "unread": count_unread(user["id"])}
+
+
+@app.patch("/api/notifications/read-all")
+def read_all_notifications(user: dict = Depends(get_current_user)):
+    n = mark_all_notifications_read(user["id"])
+    return {"ok": True, "marked": n, "unread": 0}
+
+
+@app.get("/api/notifications/unread-count")
+def unread_count(user: dict = Depends(get_current_user)):
+    return {"unread": count_unread(user["id"])}
+
+
+@app.get("/api/notifications/{notification_id}")
+def get_one_notification(notification_id: int, user: dict = Depends(get_current_user)):
+    item = get_notification(notification_id, user["id"])
+    if not item:
+        raise HTTPException(404, "Bildirim bulunamadı")
+    return item
+
+
 @app.post("/api/notifications")
-async def create_notification(
+async def create_notification_route(
     background_tasks: BackgroundTasks,
     user: dict = Depends(get_current_user),
     tarih: str = Form(...),
@@ -322,7 +587,6 @@ async def create_notification(
     modul: str = Form(""),
     gorsel: Optional[UploadFile] = File(None),
 ):
-    global _next_mem_id
     gorsel_url = ""
     if gorsel and gorsel.filename:
         ext = Path(gorsel.filename).suffix or ".jpg"
@@ -332,35 +596,21 @@ async def create_notification(
             shutil.copyfileobj(gorsel.file, f)
         gorsel_url = f"/api/uploads/{fname}"
 
-    item = {
-        "id": _next_mem_id,
-        "user_id": user["id"],
-        "tarih": tarih,
-        "zaman": zaman,
-        "kamera": kamera,
-        "kategori": kategori,
-        "baslik": baslik,
-        "detay": detay,
-        "seviye": seviye,
-        "modul": modul,
-        "gorsel": gorsel_url,
-        "okundu": False,
-    }
-    _next_mem_id += 1
-    saved = add_notification(item)
-
-    async def push_ws_notification(uid: str, payload: dict):
-        await manager.send_user(uid, payload)
-
-    background_tasks.add_task(
-        push_ws_notification,
+    payload = build_notification_payload(
         user["id"],
-        {
-            "type": "notification",
-            "item": saved,
-            "unread": len([n for n in list_notifications(user["id"]) if not n.get("okundu")]),
-        },
+        baslik=baslik,
+        detay=detay,
+        kategori=kategori,
+        seviye=seviye,
+        kamera=kamera,
+        modul=modul,
+        gorsel=gorsel_url,
+        tarih=tarih,
+        zaman=zaman,
     )
+    saved = create_notification(user["id"], payload)
+
+    background_tasks.add_task(push_notification, user["id"], saved)
     return saved
 
 
@@ -370,30 +620,6 @@ def serve_upload(filename: str):
     if not path.exists():
         raise HTTPException(404)
     return FileResponse(path)
-
-
-@app.get("/api/settings/cameras")
-def get_cameras_route(user: dict = Depends(get_current_user)):
-    return {"data": get_cameras(user["id"]), "modules": MODULES}
-
-
-@app.post("/api/settings/cameras")
-def add_camera_route(body: CameraBody, user: dict = Depends(get_current_user)):
-    return add_camera(user["id"], body.model_dump())
-
-
-@app.put("/api/settings/cameras/{camera_id}")
-def update_camera_route(camera_id: str, body: CameraBody, user: dict = Depends(get_current_user)):
-    cam = update_camera(user["id"], camera_id, body.model_dump())
-    if not cam:
-        raise HTTPException(404, "Kamera bulunamadı")
-    return cam
-
-
-@app.delete("/api/settings/cameras/{camera_id}")
-def delete_camera_route(camera_id: str, user: dict = Depends(get_current_user)):
-    delete_camera(user["id"], camera_id)
-    return {"ok": True}
 
 
 @app.post("/api/settings/password")
@@ -415,43 +641,51 @@ def meta_dates():
 
 @app.get("/api/productivity")
 def productivity():
-    return PERSONNEL_PRODUCTIVITY
+    return mes_productivity_for_date(AVAILABLE_DATES[0])
 
 
 @app.get("/api/counts/products")
 def product_counts(tarih: Optional[str] = None):
     key = tarih or AVAILABLE_DATES[0]
-    payload = PRODUCT_BY_DATE.get(key) or product_for_date(key)
-    return {"tarih": key, "dates": AVAILABLE_DATES, **payload}
+    return panel_product_counts(key)
 
 
 @app.get("/api/mes/productivity")
 def mes_productivity(tarih: Optional[str] = None, user: dict = Depends(get_current_user)):
-    key = tarih or AVAILABLE_DATES[0]
-    k = get_daily_metric(user["id"], key) or kpi_for_date(key)
-    personeller = personnel_for_date(key)
-    return {
+    key = tarih or date.today().isoformat()
+    k = get_daily_metric(user["id"], key)
+    base = mes_productivity_for_date(key) if k else {
         "tarih": key,
-        "ortalama_verimlilik": k["verimlilik"],
-        "aktif_personel": k["personel_aktif"],
-        "personeller": personeller,
-        "vardiya_trend": [
-            {"vardiya": "06-14", "verimlilik": round(k["verimlilik"] - 2.1, 1)},
-            {"vardiya": "14-22", "verimlilik": round(k["verimlilik"] + 0.6, 1)},
-            {"vardiya": "22-06", "verimlilik": round(k["verimlilik"] - 4.9, 1)},
-        ],
+        "ortalama_verimlilik": None,
+        "aktif_personel": 0,
+        "hatlar": [],
     }
+    if k:
+        base["ortalama_verimlilik"] = float(k["verimlilik"]) if isinstance(k.get("verimlilik"), str) else k["verimlilik"]
+        base["aktif_personel"] = k["personel_aktif"]
+    return base
 
 
 @app.get("/api/reports/kpis")
 def reports_kpis(tarih: Optional[str] = None, user: dict = Depends(get_current_user)):
-    key = tarih or AVAILABLE_DATES[0]
+    key = tarih or date.today().isoformat()
     uid = user["id"]
-    k = get_daily_metric(uid, key) or kpi_for_date(key)
-    urun = product_for_date(key)
-    notifs = [n for n in list_notifications(uid) if n.get("tarih") == key]
-    if notifs:
+    notifs = notifications_for_date(uid, key)
+    k = get_daily_metric(uid, key)
+    if not k:
+        isg = len([n for n in notifs if n.get("seviye") in ("kritik", "uyari")])
+        k = {
+            "tarih": key,
+            "urun_toplam": 0,
+            "verimlilik": 0,
+            "isg_ihlal": isg,
+            "personel_aktif": 0,
+            "bildirim_sayisi": len(notifs),
+            "log_sayisi": 0,
+        }
+    elif notifs:
         k = {**k, "bildirim_sayisi": len(notifs)}
+    urun = product_for_date(key) if get_daily_metric(uid, key) else {"toplam": 0, "degisim": "Veri yok"}
     return {
         "tarih": key,
         "dates": AVAILABLE_DATES,
@@ -507,21 +741,41 @@ def dashboard_all(
     compare: Optional[str] = None,
     user: dict = Depends(get_current_user),
 ):
-    today = AVAILABLE_DATES[0]
-    u = find_user_by_id(user["id"])
+    today = date.today().isoformat()
+    uid = user["id"]
+    u = find_user_by_id(uid)
     pub = user_public(u)
+    floor_plan = get_floor_plan(uid)
+    today_notifs = notifications_for_date(uid, today)
+    all_notifs = list_notifications(uid)
+    pc = panel_product_counts(today)
+    mes = mes_productivity_for_date(today)
+    k = get_daily_metric(uid, today)
+    if k:
+        mes["ortalama_verimlilik"] = float(k["verimlilik"]) if isinstance(k.get("verimlilik"), str) else k["verimlilik"]
+        mes["aktif_personel"] = k["personel_aktif"]
+    else:
+        mes["ortalama_verimlilik"] = None
+        mes["aktif_personel"] = 0
+    traffic = build_traffic_from_notifications(today_notifs)
+    system_health = build_system_health(uid, floor_plan, today)
     return {
-        "summary": _summary_for_user(pub),
+        "today": today,
+        "summary": _summary_for_user(pub, today),
         "dates": AVAILABLE_DATES,
-        "traffic": TRAFFIC_24H,
+        "traffic": traffic,
         "compare": get_compare(compare),
         "compare_presets": ["bugun_dun", "hafta"],
-        "notifications": list_notifications(user["id"]),
+        "notifications": all_notifs,
+        "today_notifications": today_notifs,
         "notification_categories": NOTIFICATION_CATEGORIES,
-        "notification_stats": NOTIFICATION_STATS,
-        "logs": DETECTION_LOGS,
-        "productivity": PERSONNEL_PRODUCTIVITY,
-        "product_counts": {"tarih": today, "dates": AVAILABLE_DATES, **PRODUCT_BY_DATE[today]},
-        "system": {"ai_aktif": heartbeat_active(user["id"]), "storage": DB_KIND},
+        "notification_stats": notification_stats_for_date(uid, today),
+        "logs": panel_detection_logs(uid, DETECTION_LOGS),
+        "productivity": mes,
+        "product_counts": pc,
+        "floor_plan": floor_plan,
+        "tracked_cameras": build_tracked_cameras(floor_plan),
+        "system": {"ai_aktif": system_health["ai_aktif"], "storage": DB_KIND, "has_api_key": system_health["has_api_key"]},
+        "system_health": system_health,
         "user": pub,
     }

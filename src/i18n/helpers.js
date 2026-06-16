@@ -1,7 +1,11 @@
 /** API / demo verisindeki sabit Türkçe etiketleri locale'e çevirir */
 
 const CAT_TR = {
+  Yangın: "Yangın",
+  Duman: "Duman",
+  Düşme: "Düşme",
   İSG: "İSG",
+  "Yasak Bölge": "Yasak Bölge",
   Üretim: "Üretim",
   MES: "MES",
   Sistem: "Sistem",
@@ -9,7 +13,11 @@ const CAT_TR = {
 };
 
 const CAT_EN = {
-  İSG: "HSE",
+  Yangın: "Fire",
+  Duman: "Smoke",
+  Düşme: "Fall",
+  İSG: "HSE / PPE",
+  "Yasak Bölge": "Restricted Zone",
   Üretim: "Production",
   MES: "MES",
   Sistem: "System",

@@ -1,215 +1,163 @@
-import { useMemo, useState } from "react";
-import { Bell, Image, Plus } from "lucide-react";
-import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { api } from "../api";
+import { useEffect, useMemo, useState } from "react";
+import { AlertTriangle, Bell, Bot, Flame, GraduationCap, List } from "lucide-react";
 import { useLocale } from "../context/LocaleContext";
-import { translateCategory, translateSeviye } from "../i18n/helpers";
+import { translateSeviye } from "../i18n/helpers";
 import FilterBar from "../components/FilterBar";
-import { DataTable, Panel, StatCard, StatusBadge } from "../components/ui";
+import { Panel, StatCard } from "../components/ui";
+import NotificationTable from "../components/notifications/NotificationTable";
+import NotificationDetailModal from "../components/notifications/NotificationDetailModal";
+import NotificationInsightsView from "../components/notifications/NotificationInsightsView";
+import TrainingFeedbackView from "../components/notifications/TrainingFeedbackView";
+import {
+  EVENT_TYPES, SEVIYELER, countByEventType, kritikCount,
+} from "../data/notificationTypes";
 
-const SEVIYELER = ["kritik", "uyari", "bilgi"];
+const TABS = [
+  { id: "liste", icon: List, labelKey: "notifTabListe" },
+  { id: "analiz", icon: Bot, labelKey: "notifTabAnaliz" },
+  { id: "egitim", icon: GraduationCap, labelKey: "notifTabEgitim" },
+];
 
-export default function NotificationsView({ data, onRefresh }) {
+export default function NotificationsView({ data, onNotificationUpdated }) {
   const { t, locale } = useLocale();
   const dates = data.dates || [];
-  const [date, setDate] = useState(dates[0]);
+  const [tab, setTab] = useState("liste");
+  const [date, setDate] = useState("");
   const [search, setSearch] = useState("");
-  const [kategori, setKategori] = useState("tumu");
-  const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({
-    tarih: dates[0] || new Date().toISOString().slice(0, 10),
-    zaman: "14:00",
-    kamera: "",
-    kategori: "İSG",
-    baslik: "",
-    detay: "",
-    seviye: "bilgi",
-    modul: "",
-    gorsel: "",
-  });
-  const [saving, setSaving] = useState(false);
+  const [eventFilter, setEventFilter] = useState("tumu");
+  const [seviyeFilter, setSeviyeFilter] = useState("tumu");
+  const [selected, setSelected] = useState(null);
 
   const list = data.notifications || [];
+
+  useEffect(() => {
+    if (dates[0]) setDate(dates[0]);
+  }, [dates[0]]);
 
   const filtered = useMemo(() => {
     return list.filter((n) => {
       if (date && n.tarih !== date) return false;
-      if (kategori !== "tumu" && n.kategori !== kategori) return false;
+      if (eventFilter !== "tumu" && n.kategori !== eventFilter) return false;
+      if (seviyeFilter !== "tumu" && n.seviye !== seviyeFilter) return false;
       const q = search.toLowerCase();
       if (!q) return true;
       return [n.baslik, n.detay, n.kamera, n.kategori, n.modul].some((x) =>
         String(x).toLowerCase().includes(q)
       );
     });
-  }, [list, date, search, kategori]);
+  }, [list, date, search, eventFilter, seviyeFilter]);
 
-  const chartBySeviye = useMemo(() => {
-    const m = {};
-    filtered.forEach((n) => {
-      m[n.seviye] = (m[n.seviye] || 0) + 1;
-    });
-    return [
-      { ad: translateSeviye(locale, "kritik"), deger: m.kritik || 0, fill: "#ef4444", key: "kritik" },
-      { ad: translateSeviye(locale, "uyari"), deger: m.uyari || 0, fill: "#f97316", key: "uyari" },
-      { ad: translateSeviye(locale, "bilgi"), deger: m.bilgi || 0, fill: "#64748b", key: "bilgi" },
-    ];
-  }, [filtered, locale]);
-
-  const [imageFile, setImageFile] = useState(null);
-
-  const handleAdd = async (e) => {
-    e.preventDefault();
-    setSaving(true);
-    try {
-      const fd = new FormData();
-      fd.append("tarih", form.tarih);
-      fd.append("zaman", form.zaman);
-      fd.append("kamera", form.kamera);
-      fd.append("kategori", form.kategori);
-      fd.append("baslik", form.baslik);
-      fd.append("detay", form.detay);
-      fd.append("seviye", form.seviye);
-      fd.append("modul", form.modul);
-      if (imageFile) fd.append("gorsel", imageFile);
-      await api.addNotification(fd);
-      setShowForm(false);
-      setImageFile(null);
-      setForm({ ...form, baslik: "", detay: "", kamera: "" });
-      onRefresh?.();
-    } catch (err) {
-      alert(err.message);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const kritik = filtered.filter((n) => n.seviye === "kritik" && !n.okundu).length;
+  const typeCounts = useMemo(() => countByEventType(filtered), [filtered]);
+  const kritik = kritikCount(filtered);
+  const unread = filtered.filter((n) => !n.okundu).length;
 
   return (
-    <>
-      <FilterBar
-        search={search}
-        onSearchChange={setSearch}
-        searchPlaceholder={t.bildirimAra}
-        date={date}
-        onDateChange={(d) => { setDate(d); setForm((f) => ({ ...f, tarih: d })); }}
-        dates={dates}
-        showGranularity={false}
-        extra={
-          <>
-            <select
-              value={kategori}
-              onChange={(e) => setKategori(e.target.value)}
-              className="input-dark w-auto"
-            >
-              <option value="tumu">{t.tumKategoriler}</option>
-              {(data.notification_categories || []).map((c) => (
-                <option key={c} value={c}>{translateCategory(locale, c)}</option>
-              ))}
-            </select>
-            <button type="button" onClick={() => setShowForm(!showForm)} className="btn-secondary shrink-0">
-              <Plus className="h-4 w-4" />
-              {t.bildirimEkle}
-            </button>
-          </>
-        }
-      />
-
-      {showForm && (
-        <form onSubmit={handleAdd} className="panel panel-body space-y-3">
-          <p className="text-sm font-semibold text-[var(--text-primary)]">{t.yeniBildirim}</p>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            <input required placeholder={t.baslik} value={form.baslik} onChange={(e) => setForm({ ...form, baslik: e.target.value })} className="input-dark" />
-            <input required placeholder={t.kameraAlan} value={form.kamera} onChange={(e) => setForm({ ...form, kamera: e.target.value })} className="input-dark" />
-            <input placeholder={t.modul} value={form.modul} onChange={(e) => setForm({ ...form, modul: e.target.value })} className="input-dark" />
-            <select value={form.kategori} onChange={(e) => setForm({ ...form, kategori: e.target.value })} className="input-dark">
-              {(data.notification_categories || ["İSG"]).map((c) => (
-                <option key={c} value={c}>{translateCategory(locale, c)}</option>
-              ))}
-            </select>
-            <select value={form.seviye} onChange={(e) => setForm({ ...form, seviye: e.target.value })} className="input-dark">
-              {SEVIYELER.map((s) => <option key={s} value={s}>{translateSeviye(locale, s)}</option>)}
-            </select>
-            <input type="time" value={form.zaman} onChange={(e) => setForm({ ...form, zaman: e.target.value })} className="input-dark" />
-            <label className="sm:col-span-2 text-xs text-[var(--text-muted)]">
-              {t.gorselYukle}
-              <input type="file" accept="image/*" className="input-dark mt-1" onChange={(e) => setImageFile(e.target.files?.[0] || null)} />
-            </label>
-            <textarea placeholder={t.detay} value={form.detay} onChange={(e) => setForm({ ...form, detay: e.target.value })} className="input-dark sm:col-span-2 lg:col-span-3 min-h-[60px]" />
-          </div>
-          <div className="flex gap-2">
-            <button type="submit" disabled={saving} className="btn-primary disabled:opacity-50">
-              {saving ? t.kaydediliyor : t.kaydet}
-            </button>
-            <button type="button" onClick={() => setShowForm(false)} className="btn-ghost">{t.iptal}</button>
-          </div>
-        </form>
-      )}
-
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <StatCard title={t.toplamFiltre} value={filtered.length} subtitle={t.seciliTarihArama} icon={Bell} accent="blue" />
-        <StatCard title={t.okunmamisKritik} value={kritik} subtitle={t.acilMudahale} accent="red" />
-        <StatCard title={t.kategoriler} value={(data.notification_categories || []).length} subtitle={t.aktifBildirimTuru} accent="cyan" />
+    <div className="notif-page">
+      <div className="notif-page-tabs" role="tablist">
+        {TABS.map(({ id, icon: Icon, labelKey }) => (
+          <button
+            key={id}
+            type="button"
+            role="tab"
+            aria-selected={tab === id}
+            className={tab === id ? "dash-pill dash-pill--active" : "dash-pill"}
+            onClick={() => setTab(id)}
+          >
+            <Icon className="h-3.5 w-3.5 shrink-0" />
+            <span>{t[labelKey]}</span>
+          </button>
+        ))}
       </div>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <Panel title={t.seviyeDagilimi} className="lg:col-span-1">
-          <ResponsiveContainer width="100%" height={200}>
-            <PieChart>
-              <Pie data={chartBySeviye} dataKey="deger" nameKey="ad" cx="50%" cy="50%" innerRadius={45} outerRadius={70} paddingAngle={3}>
-                {chartBySeviye.map((e) => <Cell key={e.key} fill={e.fill} />)}
-              </Pie>
-              <Tooltip contentStyle={{ background: "var(--tooltip-bg)", border: "1px solid var(--border)", borderRadius: 8 }} />
-            </PieChart>
-          </ResponsiveContainer>
-        </Panel>
+      {tab === "analiz" ? (
+        <NotificationInsightsView dates={dates} />
+      ) : tab === "egitim" ? (
+        <TrainingFeedbackView />
+      ) : (
+        <>
+          <FilterBar
+            search={search}
+            onSearchChange={setSearch}
+            searchPlaceholder={t.bildirimAra}
+            date={date}
+            onDateChange={setDate}
+            dates={dates}
+            showGranularity={false}
+          />
 
-        <Panel title={t.kategoriGrafigi} className="lg:col-span-2">
-          <ResponsiveContainer width="100%" height={200}>
-            <BarChart data={(data.notification_stats || []).map((s) => ({ ...s, kategori: translateCategory(locale, s.kategori) }))}>
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false} />
-              <XAxis dataKey="kategori" tick={{ fill: "var(--text-muted)", fontSize: 10 }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fill: "var(--text-muted)", fontSize: 10 }} axisLine={false} tickLine={false} />
-              <Tooltip contentStyle={{ background: "var(--tooltip-bg)", border: "1px solid var(--border)", borderRadius: 8 }} />
-              <Bar dataKey="adet" radius={[6, 6, 0, 0]}>
-                {(data.notification_stats || []).map((s) => <Cell key={s.kategori} fill={s.renk} />)}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        </Panel>
-      </div>
+          <div className="notif-summary-row">
+            <StatCard title={t.toplamFiltre} value={filtered.length} subtitle={t.seciliTarihArama} icon={Bell} accent="blue" />
+            <StatCard title={t.okunmamisKritik} value={kritik} subtitle={t.acilMudahale} icon={AlertTriangle} accent="red" />
+            <StatCard title={t.okunmamis} value={unread} subtitle={t.bekleyenKayit} icon={Bell} accent="orange" />
+            <StatCard title={t.olayTipleri} value={EVENT_TYPES.filter((e) => typeCounts[e.id] > 0).length} subtitle={t.aktifAlgilama} icon={Flame} accent="cyan" />
+          </div>
 
-      <Panel title={t.bildirimTablosu} subtitle={t.gorselOnizleme} flush>
-        <DataTable minWidth="800px">
-          <thead>
-            <tr>
-              <th>{t.gorsel}</th>
-              <th>{t.zaman}</th>
-              <th>{t.kategori}</th>
-              <th>{t.baslik}</th>
-              <th>{t.kameraAlan}</th>
-              <th>{t.seviye}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.length === 0 ? (
-              <tr className="empty-row"><td colSpan={6}>{t.bildirimBulunamadi}</td></tr>
-            ) : filtered.map((n) => (
-              <tr key={n.id}>
-                <td><div className="thumb-box"><Image className="h-5 w-5 text-[var(--accent)]" /></div></td>
-                <td className="font-mono text-xs text-[var(--text-muted)] whitespace-nowrap">{n.zaman}</td>
-                <td>{translateCategory(locale, n.kategori)}</td>
-                <td>
-                  <p className="font-medium">{n.baslik}</p>
-                  <p className="text-xs text-[var(--text-muted)] mt-0.5 max-w-xs truncate">{n.detay}</p>
-                </td>
-                <td className="text-[var(--text-muted)]">{n.kamera}</td>
-                <td><StatusBadge variant={n.seviye}>{translateSeviye(locale, n.seviye)}</StatusBadge></td>
-              </tr>
+          <Panel title={t.olayTipiKpi} subtitle={t.olayTipiKpiAlt} className="notif-events-panel">
+            <div className="notif-event-kpis">
+              <button
+                type="button"
+                className={`notif-event-kpi ${eventFilter === "tumu" ? "notif-event-kpi--active" : ""}`}
+                onClick={() => setEventFilter("tumu")}
+              >
+                <span className="notif-event-kpi-val">{filtered.length}</span>
+                <span className="notif-event-kpi-lbl">{t.tumKategoriler}</span>
+              </button>
+              {EVENT_TYPES.map((ev) => {
+                const Icon = ev.icon;
+                const cnt = typeCounts[ev.id] || 0;
+                if (cnt === 0 && eventFilter !== ev.id) return null;
+                return (
+                  <button
+                    key={ev.id}
+                    type="button"
+                    className={`notif-event-kpi ${eventFilter === ev.id ? "notif-event-kpi--active" : ""}`}
+                    style={{ "--ev-color": ev.color }}
+                    onClick={() => setEventFilter(eventFilter === ev.id ? "tumu" : ev.id)}
+                  >
+                    <Icon className="notif-event-kpi-icon" />
+                    <span className="notif-event-kpi-val">{cnt}</span>
+                    <span className="notif-event-kpi-lbl">{locale === "EN" ? ev.labelEn : ev.labelTr}</span>
+                    <span className="notif-event-kpi-desc">{locale === "EN" ? ev.descEn : ev.descTr}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </Panel>
+
+          <div className="notif-sev-filters">
+            {["tumu", ...SEVIYELER].map((s) => (
+              <button
+                key={s}
+                type="button"
+                className={seviyeFilter === s ? "notif-sev-pill notif-sev-pill--active" : "notif-sev-pill"}
+                onClick={() => setSeviyeFilter(s)}
+              >
+                {s === "tumu" ? t.tumSeviyeler : translateSeviye(locale, s)}
+              </button>
             ))}
-          </tbody>
-        </DataTable>
-      </Panel>
-    </>
+          </div>
+
+          <Panel
+            title={t.bildirimTablosu}
+            subtitle={`${filtered.length} ${t.kayit} · ${t.gorselOnizleme}`}
+            className="notif-table-panel"
+            flush
+          >
+            <NotificationTable items={filtered} onSelect={setSelected} onUpdated={onNotificationUpdated} />
+          </Panel>
+
+          {selected && (
+            <NotificationDetailModal
+              item={selected}
+              onClose={() => setSelected(null)}
+              onUpdated={(item) => {
+                onNotificationUpdated?.(item);
+                setSelected(item);
+              }}
+            />
+          )}
+        </>
+      )}
+    </div>
   );
 }

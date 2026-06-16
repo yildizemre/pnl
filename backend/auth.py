@@ -4,7 +4,9 @@ from datetime import datetime, timedelta, timezone
 
 from jose import JWTError, jwt
 
-SECRET = "hypevision-demo-secret-change-in-production"
+from config import JWT_SECRET
+
+SECRET = JWT_SECRET
 ALGORITHM = "HS256"
 ACCESS_HOURS = 24
 

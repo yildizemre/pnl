@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import { ExternalLink, Plus, Trash2, Users } from "lucide-react";
+import { Copy, ExternalLink, Key, Map, Plus, RotateCcw, Trash2, Users } from "lucide-react";
+import FloorPlanEditor from "../components/admin/FloorPlanEditor";
 import { api } from "../api";
-import { useAuth } from "../context/AuthContext";
+import { useAuth } from "../hooks/useAuth";
 import { useLocale } from "../context/LocaleContext";
 import { ROLE_LABELS_EN, ROLE_LABELS_TR } from "../lib/roles";
 import FilterBar from "../components/FilterBar";
@@ -14,11 +15,17 @@ export default function AdminUsersView() {
   const [users, setUsers] = useState([]);
   const [search, setSearch] = useState("");
   const [showForm, setShowForm] = useState(false);
+  const [keyUser, setKeyUser] = useState(null);
+  const [keys, setKeys] = useState([]);
+  const [newKeyRaw, setNewKeyRaw] = useState("");
+  const [keyLabel, setKeyLabel] = useState("Mobil / Entegrasyon");
+  const [floorUser, setFloorUser] = useState(null);
+  const [openFloorAfterCreate, setOpenFloorAfterCreate] = useState(true);
   const [form, setForm] = useState({
     kullanici_adi: "",
     ad: "",
     email: "",
-    sifre: "demo",
+    sifre: "demo123",
     rol: "user",
     kurulum: "",
   });
@@ -42,16 +49,58 @@ export default function AdminUsersView() {
 
   const submit = async (e) => {
     e.preventDefault();
-    await api.createUser(form);
+    const created = await api.createUser(form);
     setShowForm(false);
-    setForm({ kullanici_adi: "", ad: "", email: "", sifre: "demo", rol: "user", kurulum: "" });
+    setForm({ kullanici_adi: "", ad: "", email: "", sifre: "demo123", rol: "user", kurulum: "" });
     load();
+    if (openFloorAfterCreate && created?.id) {
+      setFloorUser(created);
+    }
   };
 
   const remove = async (u) => {
     if (!window.confirm(`${u.ad} — ${t.silOnay}`)) return;
     try {
       await api.deleteUser(u.id);
+      load();
+    } catch (e) {
+      alert(e.message);
+    }
+  };
+
+  const openKeys = async (u) => {
+    setKeyUser(u);
+    setNewKeyRaw("");
+    const res = await api.listApiKeys(u.id);
+    setKeys(res.data || []);
+  };
+
+  const createKey = async () => {
+    if (!keyUser) return;
+    const res = await api.createApiKey(keyUser.id, keyLabel);
+    setNewKeyRaw(res.api_key);
+    const list = await api.listApiKeys(keyUser.id);
+    setKeys(list.data || []);
+  };
+
+  const revokeKey = async (keyId) => {
+    await api.deleteApiKey(keyId);
+    if (keyUser) {
+      const list = await api.listApiKeys(keyUser.id);
+      setKeys(list.data || []);
+    }
+  };
+
+  const copyKey = () => {
+    if (newKeyRaw) navigator.clipboard.writeText(newKeyRaw);
+  };
+
+  const resetPanel = async (u) => {
+    const msg = t.resetPanelOnay.replace("{name}", u.ad);
+    if (!window.confirm(msg)) return;
+    try {
+      await api.resetPanelData(u.id);
+      alert(t.resetPanelOk);
       load();
     } catch (e) {
       alert(e.message);
@@ -92,6 +141,10 @@ export default function AdminUsersView() {
             ))}
           </select>
           <button type="submit" className="btn-primary sm:col-span-2 lg:col-span-3">{t.kaydet}</button>
+          <label className="flex items-center gap-2 text-sm text-[var(--text-muted)] sm:col-span-2 lg:col-span-3">
+            <input type="checkbox" checked={openFloorAfterCreate} onChange={(e) => setOpenFloorAfterCreate(e.target.checked)} />
+            {t.krokiOlusturSonra}
+          </label>
         </form>
       )}
 
@@ -135,6 +188,17 @@ export default function AdminUsersView() {
                   </td>
                   <td className="text-right">
                     <div className="flex flex-wrap justify-end gap-1">
+                      <button type="button" onClick={() => openKeys(u)} className="btn-ghost" title={t.apiAnahtari}>
+                        <Key className="h-3.5 w-3.5" />
+                        API
+                      </button>
+                      <button type="button" onClick={() => setFloorUser(u)} className="btn-ghost" title={t.krokiEditor}>
+                        <Map className="h-3.5 w-3.5" />
+                        {t.kroki}
+                      </button>
+                      <button type="button" onClick={() => resetPanel(u)} className="btn-ghost text-amber-500" title={t.resetPanelData}>
+                        <RotateCcw className="h-3.5 w-3.5" />
+                      </button>
                       <button type="button" onClick={() => impersonate(u.id)} className="btn-ghost">
                         <ExternalLink className="h-3.5 w-3.5" />
                         {t.paneleGit}
@@ -157,6 +221,51 @@ export default function AdminUsersView() {
           </tbody>
         </DataTable>
       </Panel>
+
+      {keyUser && (
+        <div className="admin-key-backdrop" onClick={() => setKeyUser(null)} role="presentation">
+          <div className="admin-key-modal panel" onClick={(e) => e.stopPropagation()}>
+            <h3>{t.apiAnahtari} — {keyUser.ad}</h3>
+            <p className="text-sm text-[var(--text-muted)]">{t.apiAnahtariAlt}</p>
+
+            {newKeyRaw && (
+              <div className="admin-key-new">
+                <code>{newKeyRaw}</code>
+                <button type="button" className="btn-secondary" onClick={copyKey}>
+                  <Copy className="h-4 w-4" />
+                  {t.kopyala}
+                </button>
+                <p className="text-xs text-amber-500">{t.apiAnahtariUyari}</p>
+              </div>
+            )}
+
+            <div className="admin-key-create">
+              <input className="input-dark flex-1" value={keyLabel} onChange={(e) => setKeyLabel(e.target.value)} placeholder={t.apiAnahtarEtiket} />
+              <button type="button" className="btn-primary" onClick={createKey}>
+                <Plus className="h-4 w-4" />
+                {t.yeniApiAnahtar}
+              </button>
+            </div>
+
+            <ul className="admin-key-list">
+              {keys.length === 0 ? (
+                <li className="text-sm text-[var(--text-muted)]">{t.apiAnahtarYok}</li>
+              ) : keys.map((k) => (
+                <li key={k.id}>
+                  <span>{k.label}</span>
+                  <code>{k.key_prefix}</code>
+                  <button type="button" className="btn-ghost text-red-500" onClick={() => revokeKey(k.id)}>
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      )}
+      {floorUser && (
+        <FloorPlanEditor user={floorUser} onClose={() => setFloorUser(null)} />
+      )}
     </>
   );
 }

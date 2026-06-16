@@ -6,22 +6,27 @@ export function useWebSocket(onMessage, enabled = true) {
   cb.current = onMessage;
 
   useEffect(() => {
-    if (!enabled || !localStorage.getItem("hv_token")) return;
+    if (!enabled || !localStorage.getItem("hv_token")) return undefined;
 
-    let ws;
-    let timer;
+    let ws = null;
+    let reconnectTimer = null;
+    let connectTimer = null;
     let closed = false;
+    let gen = 0;
 
     const connect = () => {
       if (closed) return;
+      const myGen = ++gen;
+      let socket;
       try {
-        ws = new WebSocket(wsUrl());
+        socket = new WebSocket(wsUrl());
       } catch {
-        timer = setTimeout(connect, 5000);
+        reconnectTimer = setTimeout(connect, 5000);
         return;
       }
+      ws = socket;
 
-      ws.onmessage = (e) => {
+      socket.onmessage = (e) => {
         try {
           const data = JSON.parse(e.data);
           cb.current?.(data);
@@ -30,19 +35,52 @@ export function useWebSocket(onMessage, enabled = true) {
         }
       };
 
-      ws.onclose = () => {
-        if (!closed) timer = setTimeout(connect, 4000);
+      socket.onopen = () => {
+        if (closed || myGen !== gen) return;
       };
 
-      ws.onerror = () => ws?.close();
+      socket.onclose = () => {
+        if (!closed && myGen === gen) {
+          reconnectTimer = setTimeout(connect, 4000);
+        }
+      };
+
+      socket.onerror = () => {
+        if (closed || myGen !== gen) return;
+        if (socket.readyState === WebSocket.OPEN) {
+          try {
+            socket.close();
+          } catch {
+            /* ignore */
+          }
+        }
+      };
     };
 
-    connect();
+    connectTimer = setTimeout(connect, 150);
 
     return () => {
       closed = true;
-      clearTimeout(timer);
-      ws?.close();
+      gen += 1;
+      clearTimeout(reconnectTimer);
+      clearTimeout(connectTimer);
+      const socket = ws;
+      ws = null;
+      if (socket) {
+        socket.onopen = null;
+        socket.onclose = null;
+        socket.onerror = null;
+        socket.onmessage = null;
+        if (socket.readyState === WebSocket.OPEN) {
+          try {
+            socket.close();
+          } catch {
+            /* ignore */
+          }
+        }
+      }
     };
   }, [enabled]);
+
+  return null;
 }

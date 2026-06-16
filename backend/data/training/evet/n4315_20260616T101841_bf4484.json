@@ -1,0 +1,22 @@
+{
+  "notification_id": 4315,
+  "label": "evet",
+  "saved_at": "2026-06-16T10:18:41.967937+00:00",
+  "image": null,
+  "notification": {
+    "id": 4315,
+    "user_id": "u-71adf683",
+    "tarih": "2026-06-16",
+    "zaman": "16:19",
+    "kamera": "Kalite Kontrol",
+    "kategori": "Kalite",
+    "baslik": "Renk sapması",
+    "detay": "RGB tolerans dışı — lot #4418",
+    "seviye": "uyari",
+    "modul": "Kalite AI",
+    "gorsel": "/api/placeholder/kalite-3.jpg",
+    "okundu": false,
+    "meta": {},
+    "feedback": null
+  }
+}

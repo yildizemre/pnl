@@ -12,7 +12,27 @@ async function fetchJson(path, options = {}) {
     headers["Content-Type"] = headers["Content-Type"] || "application/json";
   }
 
-  const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
+  const timeoutMs = options.timeoutMs ?? 20000;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  let res;
+  try {
+    res = await fetch(`${API_BASE}${path}`, {
+      ...options,
+      headers,
+      signal: controller.signal,
+    });
+  } catch (err) {
+    if (err.name === "AbortError") {
+      throw new Error(
+        "API yanıt vermiyor — run.bat ile backend'i yeniden başlatın (http://127.0.0.1:8000)"
+      );
+    }
+    throw new Error("API'ye bağlanılamadı — run.bat çalışıyor mu kontrol edin");
+  } finally {
+    clearTimeout(timer);
+  }
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     const detail = err.detail;
@@ -20,9 +40,13 @@ async function fetchJson(path, options = {}) {
       typeof detail === "string"
         ? detail
         : Array.isArray(detail)
-          ? detail.map((d) => d.msg).join(", ")
-          : `API hatası: ${res.status}`;
-    throw new Error(msg);
+          ? detail.map((d) => d.msg || d.message || JSON.stringify(d)).join(", ")
+          : res.status === 404
+            ? "Not Found"
+            : `API hatası: ${res.status}`;
+    const error = new Error(msg);
+    error.status = res.status;
+    throw error;
   }
   return res.json();
 }
@@ -37,8 +61,11 @@ async function fetchBlob(path) {
 }
 
 export const api = {
-  login: (email, password) =>
-    fetchJson("/api/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }),
+  login: (loginId, password) =>
+    fetchJson("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ login: loginId, email: loginId, password }),
+    }),
   me: () => fetchJson("/api/auth/me"),
   savePreferences: (dashboard_layout, onboarding_done) =>
     fetchJson("/api/user/preferences", {
@@ -58,14 +85,26 @@ export const api = {
     fetchJson(`/api/dashboard/all${compare ? `?compare=${compare}` : ""}`),
   recentNotifications: (limit = 10) => fetchJson(`/api/notifications/recent?limit=${limit}`),
   notifications: () => fetchJson("/api/notifications"),
+  markNotificationRead: (id) => fetchJson(`/api/notifications/${id}/read`, { method: "PATCH" }),
+  notificationFeedback: (id, label) =>
+    fetchJson(`/api/notifications/${id}/feedback`, { method: "POST", body: JSON.stringify({ label }) }),
+  markAllNotificationsRead: () => fetchJson("/api/notifications/read-all", { method: "PATCH" }),
+  unreadCount: () => fetchJson("/api/notifications/unread-count"),
   addNotification: (formData) => fetchJson("/api/notifications", { method: "POST", body: formData }),
+  listApiKeys: (userId) => fetchJson(`/api/admin/users/${userId}/api-keys`),
+  createApiKey: (userId, label) =>
+    fetchJson(`/api/admin/users/${userId}/api-keys`, { method: "POST", body: JSON.stringify({ label }) }),
+  deleteApiKey: (keyId) => fetchJson(`/api/admin/api-keys/${keyId}`, { method: "DELETE" }),
+  getAdminFloorPlan: (userId) => fetchJson(`/api/admin/users/${userId}/floor-plan`),
+  saveAdminFloorPlan: (userId, body) =>
+    fetchJson(`/api/admin/users/${userId}/floor-plan`, { method: "PUT", body: JSON.stringify(body) }),
+  uploadFloorBackground: async (userId, file) => {
+    const fd = new FormData();
+    fd.append("image", file);
+    return fetchJson(`/api/admin/users/${userId}/floor-plan/background`, { method: "POST", body: fd });
+  },
   productCounts: (tarih) => fetchJson(`/api/counts/products${tarih ? `?tarih=${tarih}` : ""}`),
-  getCameras: () => fetchJson("/api/settings/cameras"),
-  cameraStream: (id) => fetchJson(`/api/cameras/${id}/stream`),
-  addCamera: (body) => fetchJson("/api/settings/cameras", { method: "POST", body: JSON.stringify(body) }),
-  updateCamera: (id, body) =>
-    fetchJson(`/api/settings/cameras/${id}`, { method: "PUT", body: JSON.stringify(body) }),
-  deleteCamera: (id) => fetchJson(`/api/settings/cameras/${id}`, { method: "DELETE" }),
+  notificationInsights: (tarih) => fetchJson(`/api/notifications/insights${tarih ? `?tarih=${tarih}` : ""}`),
   changePassword: (mevcut_sifre, yeni_sifre) =>
     fetchJson("/api/settings/password", {
       method: "POST",
@@ -74,6 +113,10 @@ export const api = {
   exportReport: (title, format = "pdf") =>
     fetchBlob(`/api/reports/export?title=${encodeURIComponent(title)}&format=${format}`),
   dailyEmail: () => fetchJson("/api/reports/daily-email", { method: "POST" }),
+  integrationStatus: () => fetchJson("/api/user/integration"),
+  integrationTest: () => fetchJson("/api/user/integration/test", { method: "POST" }),
+  trainingFeedbackReport: (days = 7) => fetchJson(`/api/reports/training-feedback?days=${days}`),
+  resetPanelData: (userId) => fetchJson(`/api/admin/users/${userId}/reset-panel-data`, { method: "POST" }),
 };
 
 export function mediaUrl(path) {
@@ -83,10 +126,17 @@ export function mediaUrl(path) {
 }
 
 export function wsUrl() {
-  const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-  const host = import.meta.env.VITE_API_URL
-    ? new URL(import.meta.env.VITE_API_URL).host
-    : window.location.host;
   const token = getToken();
-  return `${proto}//${host}/api/ws?token=${encodeURIComponent(token || "")}`;
+  const q = `token=${encodeURIComponent(token || "")}`;
+
+  // Üretim: aynı host üzerinden
+  const apiBase = import.meta.env.VITE_API_URL;
+  if (apiBase) {
+    const url = new URL(apiBase);
+    const proto = url.protocol === "https:" ? "wss:" : "ws:";
+    return `${proto}//${url.host}/api/ws?${q}`;
+  }
+
+  const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+  return `${proto}//${window.location.host}/api/ws?${q}`;
 }

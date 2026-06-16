@@ -1,0 +1,12 @@
+{
+  "baslik": "Baret tespit edilemedi",
+  "kategori": "İSG",
+  "seviye": "kritik",
+  "kamera": "kamera7a",
+  "modul": "Baret Algılama",
+  "alan": "Montaj Hattı A — Giriş",
+  "guven": 0.87,
+  "zaman": "2026-06-16T00:17:32",
+  "model": "baret-v2",
+  "kamera_id": "demo-cam-1"
+}

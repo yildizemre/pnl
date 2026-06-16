@@ -1,0 +1,22 @@
+{
+  "notification_id": 4309,
+  "label": "evet",
+  "saved_at": "2026-06-16T10:18:43.029964+00:00",
+  "image": null,
+  "notification": {
+    "id": 4309,
+    "user_id": "u-71adf683",
+    "tarih": "2026-06-16",
+    "zaman": "16:13",
+    "kamera": "Paketleme — Konveyör",
+    "kategori": "Üretim",
+    "baslik": "Ürün sayım anomalisi",
+    "detay": "Beklenen adetin %15 altında",
+    "seviye": "uyari",
+    "modul": "Ürün Sayım",
+    "gorsel": "/api/placeholder/uretim-1.jpg",
+    "okundu": false,
+    "meta": {},
+    "feedback": null
+  }
+}

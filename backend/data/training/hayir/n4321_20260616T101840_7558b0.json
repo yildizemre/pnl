@@ -1,0 +1,22 @@
+{
+  "notification_id": 4321,
+  "label": "hayir",
+  "saved_at": "2026-06-16T10:18:40.891167+00:00",
+  "image": null,
+  "notification": {
+    "id": 4321,
+    "user_id": "u-71adf683",
+    "tarih": "2026-06-16",
+    "zaman": "16:25",
+    "kamera": "Giriş Turnike",
+    "kategori": "Yangın",
+    "baslik": "Yangın paneli testi",
+    "detay": "Haftalık alarm testi tamamlandı",
+    "seviye": "bilgi",
+    "modul": "Yangın Algılama",
+    "gorsel": "/api/placeholder/yangin-5.jpg",
+    "okundu": false,
+    "meta": {},
+    "feedback": null
+  }
+}

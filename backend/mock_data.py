@@ -4,6 +4,51 @@ from datetime import datetime, timedelta
 
 NOW = datetime.now()
 
+MODULES = ["isg", "sayim", "urun", "mes", "genel"]
+
+CAT_SLUG = {
+    "Yangın": "yangin",
+    "Duman": "duman",
+    "Düşme": "dusme",
+    "Yasak Bölge": "yasak-bolge",
+    "İSG": "isg",
+    "Üretim": "uretim",
+    "MES": "mes",
+    "Kalite": "kalite",
+    "Sistem": "sistem",
+}
+
+# ——— Tesis kameraları (tüm demo hesaplar) ———
+FACILITY_CAMERAS = [
+    {"ad": "Montaj Hattı A — Giriş", "modul": "isg", "ip": 101},
+    {"ad": "Montaj Hattı A — İstasyon 3", "modul": "isg", "ip": 102},
+    {"ad": "Montaj Hattı B — Ana", "modul": "mes", "ip": 103},
+    {"ad": "Montaj Hattı B — Çıkış", "modul": "sayim", "ip": 104},
+    {"ad": "Paketleme — Konveyör", "modul": "urun", "ip": 105},
+    {"ad": "Paketleme — Palet", "modul": "urun", "ip": 106},
+    {"ad": "Depo Koridoru — Ana", "modul": "genel", "ip": 107},
+    {"ad": "Depo — Forklift Alanı", "modul": "isg", "ip": 108},
+    {"ad": "Sevkiyat Rampası", "modul": "sayim", "ip": 109},
+    {"ad": "Kalite Kontrol", "modul": "mes", "ip": 110},
+    {"ad": "Giriş Turnike", "modul": "genel", "ip": 111},
+    {"ad": "Kaynak Atölyesi", "modul": "isg", "ip": 112},
+]
+
+
+def build_facility_cameras(prefix: str = "hype", count: int = 12) -> list[dict]:
+    items = FACILITY_CAMERAS[:count]
+    slug = prefix.lower().replace(" ", "-")
+    return [
+        {
+            "id": f"{slug}-cam-{i}",
+            "ad": cam["ad"],
+            "rtsp": f"rtsp://admin:Hype2024@192.168.1.{cam['ip']}:554/stream1",
+            "modul": cam["modul"],
+            "token": f"tok_{slug}_{i}",
+        }
+        for i, cam in enumerate(items, 1)
+    ]
+
 
 def _t(h: int, m: int) -> str:
     return f"{h:02d}:{m:02d}"
@@ -17,7 +62,7 @@ def _dates(n=90):
 AVAILABLE_DATES = _dates(90)
 
 DASHBOARD_SUMMARY = {
-    "kameralar": {"aktif": 12, "toplam": 16, "degisim": "+2 yeni kamera"},
+    "kameralar": {"aktif": 12, "toplam": 12, "degisim": "12 aktif kamera"},
     "isg_ihlaller": {"bugun": 3, "alt_metin": "Kritik ihlal yok"},
     "hat_verimlilik": {"ortalama": 94.2, "alt_metin": "Optimum düzeyde"},
     "urun_sayim_bugun": {"toplam": 1847, "degisim": "+%8 dünden fazla"},
@@ -28,7 +73,9 @@ DASHBOARD_SUMMARY = {
 }
 
 TRAFFIC_24H = [
-    {"saat": "00:00", "kisi": 12},
+    {"saat": "00:00", "kisi": 8},
+    {"saat": "02:00", "kisi": 5},
+    {"saat": "04:00", "kisi": 6},
     {"saat": "06:00", "kisi": 28},
     {"saat": "08:00", "kisi": 67},
     {"saat": "10:00", "kisi": 118},
@@ -36,119 +83,132 @@ TRAFFIC_24H = [
     {"saat": "14:00", "kisi": 142},
     {"saat": "16:00", "kisi": 131},
     {"saat": "18:00", "kisi": 98},
+    {"saat": "20:00", "kisi": 62},
     {"saat": "22:00", "kisi": 41},
 ]
 
-# Bildirimler — tablo + görsel alanı (demo URL)
-NOTIFICATIONS = [
-    {
-        "id": 1,
-        "tarih": AVAILABLE_DATES[0],
-        "zaman": _t(14, 32),
-        "kamera": "Montaj Hattı-1",
-        "kategori": "İSG",
-        "baslik": "Baret tespit edilemedi",
-        "detay": "Operatör #A-12 — Kritik İSG ihlali",
-        "seviye": "kritik",
-        "modul": "Baret Algılama",
-        "gorsel": "/api/placeholder/isg-1.jpg",
-        "okundu": False,
-    },
-    {
-        "id": 2,
-        "tarih": AVAILABLE_DATES[0],
-        "zaman": _t(14, 21),
-        "kamera": "Depo Koridoru",
-        "kategori": "İSG",
-        "baslik": "Yasaklı bölge ihlali",
-        "detay": "Forklift yakınlığında personel",
-        "seviye": "uyari",
-        "modul": "Bölge İhlali",
-        "gorsel": "/api/placeholder/isg-2.jpg",
-        "okundu": False,
-    },
-    {
-        "id": 3,
-        "tarih": AVAILABLE_DATES[0],
-        "zaman": _t(13, 48),
-        "kamera": "Kaynak Atölyesi",
-        "kategori": "İSG",
-        "baslik": "Eldiven eksik",
-        "detay": "Kaynak işlemi sırasında",
-        "seviye": "uyari",
-        "modul": "Eldiven",
-        "gorsel": "/api/placeholder/isg-3.jpg",
-        "okundu": True,
-    },
-    {
-        "id": 4,
-        "tarih": AVAILABLE_DATES[1],
-        "zaman": _t(11, 5),
-        "kamera": "Paketleme Hattı",
-        "kategori": "Üretim",
-        "baslik": "Ürün sayım anomalisi",
-        "detay": "Beklenen adetin %15 altında",
-        "seviye": "uyari",
-        "modul": "Ürün Sayım",
-        "gorsel": "/api/placeholder/urun-1.jpg",
-        "okundu": True,
-    },
-    {
-        "id": 5,
-        "tarih": AVAILABLE_DATES[1],
-        "zaman": _t(9, 22),
-        "kamera": "Montaj Hattı-2",
-        "kategori": "MES",
-        "baslik": "Verimlilik düşüşü",
-        "detay": "Personel P-007 — %82 verimlilik",
-        "seviye": "bilgi",
-        "modul": "MES",
-        "gorsel": "/api/placeholder/mes-1.jpg",
-        "okundu": True,
-    },
-    {
-        "id": 6,
-        "tarih": AVAILABLE_DATES[2],
-        "zaman": _t(16, 10),
-        "kamera": "Sevkiyat Rampası",
-        "kategori": "İSG",
-        "baslik": "Yelek ihlali",
-        "detay": "Yükleme alanı girişi",
-        "seviye": "kritik",
-        "modul": "Yelek Algılama",
-        "gorsel": "/api/placeholder/isg-4.jpg",
-        "okundu": True,
-    },
+NOTIF_SEED = [
+    ("Yangın", "Alev tespiti — depo bölgesi", "kritik", "Depo Koridoru — Ana", "Isı imzası %94 — acil müdahale protokolü", "Yangın Algılama"),
+    ("Duman", "Duman yoğunluğu yükseldi", "kritik", "Kaynak Atölyesi", "Sensör eşiği aşıldı — 42 sn süre", "Duman Algılama"),
+    ("Düşme", "Personel düşme algılandı", "kritik", "Montaj Hattı A — İstasyon 3", "Pose analizi — acil durum bildirimi", "Düşme Algılama"),
+    ("İSG", "Baret tespit edilemedi", "kritik", "Montaj Hattı A — İstasyon 3", "Operatör #A-12 — baret yok", "Baret Algılama"),
+    ("İSG", "Eldiven eksik", "uyari", "Kaynak Atölyesi", "Kaynak işlemi sırasında eldiven yok", "Eldiven"),
+    ("Yasak Bölge", "Yasaklı bölge ihlali", "kritik", "Depo — Forklift Alanı", "Forklift yakınlığında personel", "Bölge İhlali"),
+    ("İSG", "Yelek ihlali", "kritik", "Sevkiyat Rampası", "Yükleme alanı girişi — yansıtıcı yelek yok", "Yelek Algılama"),
+    ("İSG", "Hız limiti aşımı", "uyari", "Depo Koridoru — Ana", "Forklift 12 km/s — limit 8 km/s", "Hız Limiti"),
+    ("İSG", "KKD bölgesi ihlali", "kritik", "Montaj Hattı A — Giriş", "Koruyucu gözlük eksik", "KKD Bölgesi"),
+    ("Duman", "Hafif duman uyarısı", "uyari", "Montaj Hattı B — Ana", "Partikül yoğunluğu artışı", "Duman Algılama"),
+    ("Düşme", "Düşme riski — merdiven", "uyari", "Giriş Turnike", "Tutunma kaybı tespiti", "Düşme Algılama"),
+    ("Üretim", "Ürün sayım anomalisi", "uyari", "Paketleme — Konveyör", "Beklenen adetin %15 altında", "Ürün Sayım"),
+    ("Üretim", "Hat duruşu", "kritik", "Montaj Hattı B — Ana", "8 dk beklenmedik duruş — sensör 2", "Hat İzleme"),
+    ("Üretim", "Konveyör yavaşlama", "uyari", "Paketleme — Palet", "Hız %72 — hedef %90", "Hat İzleme"),
+    ("MES", "Verimlilik düşüşü", "bilgi", "Montaj Hattı B — Ana", "Personel P-007 — %82 verimlilik", "MES"),
+    ("MES", "Vardiya geç kalma", "bilgi", "Giriş Turnike", "3 operatör 12 dk geç giriş", "Turnike"),
+    ("Kalite", "Kusur tespiti", "uyari", "Kalite Kontrol", "Yüzey çizik — lot #4421", "Kalite AI"),
+    ("Kalite", "Renk sapması", "uyari", "Kalite Kontrol", "RGB tolerans dışı — lot #4418", "Kalite AI"),
+    ("Kalite", "Ölçü sapması", "bilgi", "Montaj Hattı A — Giriş", "Tolerans dışı 2 parça", "Ölçüm"),
+    ("MES", "Mola süresi aşımı", "uyari", "Montaj Hattı A — Giriş", "Operatör #B-04 — 18 dk mola", "MES"),
+    ("Sistem", "Kamera bağlantı uyarısı", "bilgi", "Paketleme — Palet", "RTSP 3 sn kesinti — otomatik yeniden bağlandı", "Sistem"),
+    ("Sistem", "AI model güncellemesi", "bilgi", "Kontrol Odası", "Düşme algılama modeli v3.1 yüklendi", "Sistem"),
+    ("Yangın", "Isı kaynağı — kaynak atölyesi", "kritik", "Kaynak Atölyesi", "Termal kamera eşiği aşıldı — sprinkler hazır", "Yangın Algılama"),
+    ("Yangın", "Yangın paneli testi", "bilgi", "Giriş Turnike", "Haftalık alarm testi tamamlandı", "Yangın Algılama"),
+    ("Duman", "Yoğun duman — paketleme", "kritik", "Paketleme — Konveyör", "Partikül %88 — havalandırma tetiklendi", "Duman Algılama"),
+    ("Düşme", "Bayılma pozisyonu", "kritik", "Depo Koridoru — Ana", "Hareketsizlik 45 sn — güvenlik bilgilendirildi", "Düşme Algılama"),
+    ("Düşme", "Merdiven düşme riski", "kritik", "Giriş Turnike", "Korkuluk tutunma kaybı algılandı", "Düşme Algılama"),
+    ("İSG", "Gözlük eksik", "uyari", "Kalite Kontrol", "Kimyasal bölge girişi — koruyucu gözlük yok", "KKD Bölgesi"),
+    ("Yasak Bölge", "Gece vardiyası ihlali", "kritik", "Sevkiyat Rampası", "Yetkisiz personel — yükleme alanı", "Bölge İhlali"),
+    ("Üretim", "Palet sayım farkı", "uyari", "Sevkiyat Rampası", "Beklenen 24 — sayılan 19", "Ürün Sayım"),
 ]
 
-NOTIFICATION_CATEGORIES = ["İSG", "Üretim", "MES", "Sistem", "Kalite"]
+
+def _notification_row(nid: int, tarih: str, tpl: tuple, day: int, i: int, user_salt: int = 0) -> dict:
+    cat, baslik, sev, kam, detay, modul = tpl
+    h = 6 + (day + i * 2 + user_salt) % 12
+    m = (day * 17 + i * 11 + user_salt) % 60
+    is_today = day == 0
+    okundu = not is_today and (day + i + user_salt) % 3 == 0
+    if is_today and sev in ("kritik", "uyari"):
+        okundu = False
+    return {
+        "id": nid,
+        "tarih": tarih,
+        "zaman": f"{h:02d}:{m:02d}",
+        "kamera": kam,
+        "kategori": cat,
+        "baslik": baslik,
+        "detay": detay,
+        "seviye": sev,
+        "modul": modul,
+        "gorsel": f"/api/placeholder/{CAT_SLUG.get(cat, 'sistem')}-{(nid + i) % 5 + 1}.jpg",
+        "okundu": okundu,
+    }
+
+
+def _gen_notifications() -> list[dict]:
+    out: list[dict] = []
+    nid = 1
+    for day in range(90):
+        tarih = AVAILABLE_DATES[day]
+        if day == 0:
+            indices = range(len(NOTIF_SEED))
+        elif day < 7:
+            indices = [i for i in range(len(NOTIF_SEED)) if (day + i) % 3 != 2]
+        else:
+            indices = [i for i in range(len(NOTIF_SEED)) if (day * 2 + i) % 5 != 4]
+        for i in indices:
+            out.append(_notification_row(nid, tarih, NOTIF_SEED[i], day, i))
+            nid += 1
+    return out
+
+
+NOTIFICATIONS = _gen_notifications()
+
+NOTIFICATION_CATEGORIES = ["Yangın", "Duman", "Düşme", "İSG", "Yasak Bölge", "Üretim", "MES", "Kalite", "Sistem"]
 
 NOTIFICATION_STATS = [
-    {"kategori": "İSG", "adet": 8, "renk": "#ef4444"},
-    {"kategori": "Üretim", "adet": 5, "renk": "#8b5cf6"},
-    {"kategori": "MES", "adet": 4, "renk": "#34d399"},
-    {"kategori": "Kalite", "adet": 2, "renk": "#38bdf8"},
-    {"kategori": "Sistem", "adet": 1, "renk": "#94a3b8"},
+    {"kategori": "Yangın", "adet": 8, "renk": "#ef4444"},
+    {"kategori": "Duman", "adet": 6, "renk": "#f97316"},
+    {"kategori": "Düşme", "adet": 5, "renk": "#dc2626"},
+    {"kategori": "İSG", "adet": 18, "renk": "#f59e0b"},
+    {"kategori": "Yasak Bölge", "adet": 7, "renk": "#8b5cf6"},
+    {"kategori": "Üretim", "adet": 12, "renk": "#6366f1"},
+    {"kategori": "MES", "adet": 6, "renk": "#22c55e"},
+    {"kategori": "Kalite", "adet": 5, "renk": "#3b82f6"},
+    {"kategori": "Sistem", "adet": 4, "renk": "#64748b"},
 ]
 
 DETECTION_LOGS = [
-    {"zaman": _t(14, 32), "kamera": "Montaj Hattı-1", "modul": "İSG İhlali (Baret Yok)", "durum": "Kritik", "tip": "kritik", "tarih": AVAILABLE_DATES[0]},
-    {"zaman": _t(14, 21), "kamera": "Depo Koridoru", "modul": "Yasaklı Bölge", "durum": "Uyarı", "tip": "uyari", "tarih": AVAILABLE_DATES[0]},
-    {"zaman": _t(14, 15), "kamera": "Montaj Hattı-2", "modul": "MES Verimlilik", "durum": "Optimum", "tip": "basari", "tarih": AVAILABLE_DATES[0]},
-    {"zaman": _t(13, 47), "kamera": "Paketleme", "modul": "Ürün Sayım", "durum": "Bilgi", "tip": "bilgi", "tarih": AVAILABLE_DATES[0]},
+    {"zaman": _t(14, 32), "kamera": "Montaj Hattı A — İstasyon 3", "modul": "Baret Algılama", "durum": "Kritik", "tip": "kritik", "tarih": AVAILABLE_DATES[0]},
+    {"zaman": _t(14, 21), "kamera": "Depo — Forklift Alanı", "modul": "Yasaklı Bölge", "durum": "Uyarı", "tip": "uyari", "tarih": AVAILABLE_DATES[0]},
+    {"zaman": _t(14, 15), "kamera": "Montaj Hattı B — Ana", "modul": "MES Verimlilik", "durum": "Optimum", "tip": "basari", "tarih": AVAILABLE_DATES[0]},
+    {"zaman": _t(13, 47), "kamera": "Paketleme — Konveyör", "modul": "Ürün Sayım", "durum": "Bilgi", "tip": "bilgi", "tarih": AVAILABLE_DATES[0]},
+    {"zaman": _t(13, 22), "kamera": "Giriş Turnike", "modul": "Personel Giriş", "durum": "Normal", "tip": "normal", "tarih": AVAILABLE_DATES[0]},
+    {"zaman": _t(12, 58), "kamera": "Kalite Kontrol", "modul": "Kusur Tespiti", "durum": "Uyarı", "tip": "uyari", "tarih": AVAILABLE_DATES[0]},
+    {"zaman": _t(11, 34), "kamera": "Sevkiyat Rampası", "modul": "Yelek Algılama", "durum": "Kritik", "tip": "kritik", "tarih": AVAILABLE_DATES[0]},
+    {"zaman": _t(10, 12), "kamera": "Montaj Hattı B — Çıkış", "modul": "Hat Sayım", "durum": "Optimum", "tip": "basari", "tarih": AVAILABLE_DATES[0]},
+    {"zaman": _t(9, 45), "kamera": "Kaynak Atölyesi", "modul": "Eldiven", "durum": "Uyarı", "tip": "uyari", "tarih": AVAILABLE_DATES[0]},
+    {"zaman": _t(8, 20), "kamera": "Depo Koridoru — Ana", "modul": "Hız Limiti", "durum": "Uyarı", "tip": "uyari", "tarih": AVAILABLE_DATES[0]},
+    {"zaman": _t(7, 55), "kamera": "Paketleme — Palet", "modul": "Palet Sayım", "durum": "Bilgi", "tip": "bilgi", "tarih": AVAILABLE_DATES[0]},
+    {"zaman": _t(6, 30), "kamera": "Montaj Hattı A — Giriş", "modul": "Vardiya Giriş", "durum": "Normal", "tip": "normal", "tarih": AVAILABLE_DATES[0]},
 ]
 
 PERSONNEL_LIST = [
-    {"id": "P-001", "ad": "Mehmet Kaya", "hat": "Montaj Hattı-1", "verimlilik": 96.2, "vardiya": "06-14", "durum": "optimum", "tarih": AVAILABLE_DATES[0]},
-    {"id": "P-002", "ad": "Ayşe Demir", "hat": "Montaj Hattı-1", "verimlilik": 94.8, "vardiya": "06-14", "durum": "optimum", "tarih": AVAILABLE_DATES[0]},
-    {"id": "P-003", "ad": "Ali Yıldız", "hat": "Montaj Hattı-2", "verimlilik": 91.5, "vardiya": "06-14", "durum": "iyi", "tarih": AVAILABLE_DATES[0]},
+    {"id": "P-001", "ad": "Mehmet Kaya", "hat": "Montaj Hattı A", "verimlilik": 96.2, "vardiya": "06-14", "durum": "optimum", "tarih": AVAILABLE_DATES[0]},
+    {"id": "P-002", "ad": "Ayşe Demir", "hat": "Montaj Hattı A", "verimlilik": 94.8, "vardiya": "06-14", "durum": "optimum", "tarih": AVAILABLE_DATES[0]},
+    {"id": "P-003", "ad": "Ali Yıldız", "hat": "Montaj Hattı B", "verimlilik": 91.5, "vardiya": "06-14", "durum": "iyi", "tarih": AVAILABLE_DATES[0]},
     {"id": "P-004", "ad": "Fatma Çelik", "hat": "Paketleme", "verimlilik": 97.4, "vardiya": "06-14", "durum": "optimum", "tarih": AVAILABLE_DATES[0]},
     {"id": "P-005", "ad": "Can Öztürk", "hat": "Paketleme", "verimlilik": 95.1, "vardiya": "14-22", "durum": "optimum", "tarih": AVAILABLE_DATES[0]},
     {"id": "P-006", "ad": "Zeynep Arslan", "hat": "Kalite Kontrol", "verimlilik": 88.2, "vardiya": "06-14", "durum": "dikkat", "tarih": AVAILABLE_DATES[0]},
-    {"id": "P-007", "ad": "Burak Koç", "hat": "Montaj Hattı-2", "verimlilik": 82.0, "vardiya": "14-22", "durum": "dikkat", "tarih": AVAILABLE_DATES[0]},
+    {"id": "P-007", "ad": "Burak Koç", "hat": "Montaj Hattı B", "verimlilik": 82.0, "vardiya": "14-22", "durum": "dikkat", "tarih": AVAILABLE_DATES[0]},
     {"id": "P-008", "ad": "Elif Şahin", "hat": "Depo Operasyon", "verimlilik": 93.6, "vardiya": "06-14", "durum": "iyi", "tarih": AVAILABLE_DATES[0]},
-    {"id": "P-009", "ad": "Murat Aydın", "hat": "Montaj Hattı-1", "verimlilik": 93.1, "vardiya": "14-22", "durum": "iyi", "tarih": AVAILABLE_DATES[1]},
-    {"id": "P-010", "ad": "Selin Güneş", "hat": "Paketleme", "verimlilik": 96.8, "vardiya": "06-14", "durum": "optimum", "tarih": AVAILABLE_DATES[1]},
+    {"id": "P-009", "ad": "Murat Aydın", "hat": "Montaj Hattı A", "verimlilik": 93.1, "vardiya": "14-22", "durum": "iyi", "tarih": AVAILABLE_DATES[0]},
+    {"id": "P-010", "ad": "Selin Güneş", "hat": "Paketleme", "verimlilik": 96.8, "vardiya": "06-14", "durum": "optimum", "tarih": AVAILABLE_DATES[0]},
+    {"id": "P-011", "ad": "Oğuz Kılıç", "hat": "Sevkiyat", "verimlilik": 90.4, "vardiya": "14-22", "durum": "iyi", "tarih": AVAILABLE_DATES[0]},
+    {"id": "P-012", "ad": "Deniz Acar", "hat": "Kaynak Atölyesi", "verimlilik": 87.9, "vardiya": "06-14", "durum": "dikkat", "tarih": AVAILABLE_DATES[0]},
+    {"id": "P-013", "ad": "Ece Yılmaz", "hat": "Montaj Hattı B", "verimlilik": 95.6, "vardiya": "22-06", "durum": "optimum", "tarih": AVAILABLE_DATES[0]},
+    {"id": "P-014", "ad": "Serkan Polat", "hat": "Depo Operasyon", "verimlilik": 91.2, "vardiya": "14-22", "durum": "iyi", "tarih": AVAILABLE_DATES[0]},
+    {"id": "P-015", "ad": "Gizem Tunç", "hat": "Kalite Kontrol", "verimlilik": 94.1, "vardiya": "14-22", "durum": "optimum", "tarih": AVAILABLE_DATES[0]},
+    {"id": "P-016", "ad": "Kemal Erdoğan", "hat": "Montaj Hattı A", "verimlilik": 89.7, "vardiya": "22-06", "durum": "iyi", "tarih": AVAILABLE_DATES[0]},
 ]
 
 PERSONNEL_PRODUCTIVITY = {
@@ -162,12 +222,13 @@ PERSONNEL_PRODUCTIVITY = {
     ],
 }
 
+
 def _product_day(total_mult=1.0):
     return {
         "toplam": int(1847 * total_mult),
         "hatlar": [
-            {"hat": "Montaj Hattı-1", "adet": int(412 * total_mult)},
-            {"hat": "Montaj Hattı-2", "adet": int(389 * total_mult)},
+            {"hat": "Montaj Hattı A", "adet": int(412 * total_mult)},
+            {"hat": "Montaj Hattı B", "adet": int(389 * total_mult)},
             {"hat": "Paketleme", "adet": int(534 * total_mult)},
             {"hat": "Sevkiyat Palet", "adet": int(312 * total_mult)},
             {"hat": "Kalite Kontrol", "adet": int(210 * total_mult)},
@@ -200,22 +261,11 @@ def _product_day(total_mult=1.0):
 
 
 PRODUCT_BY_DATE = {
-    AVAILABLE_DATES[0]: _product_day(1.0),
-    AVAILABLE_DATES[1]: _product_day(0.92),
-    AVAILABLE_DATES[2]: _product_day(0.88),
-    AVAILABLE_DATES[3]: _product_day(0.85),
-    AVAILABLE_DATES[4]: _product_day(0.90),
-    AVAILABLE_DATES[5]: _product_day(0.87),
-    AVAILABLE_DATES[6]: _product_day(0.83),
+    AVAILABLE_DATES[i]: _product_day(0.78 + (i % 12) * 0.02)
+    for i in range(90)
 }
 
-SETTINGS_CAMERAS = [
-    {"id": "cam-1", "ad": "Montaj Hattı-1", "rtsp": "rtsp://admin:pass@192.168.1.101:554/stream1"},
-    {"id": "cam-2", "ad": "Montaj Hattı-2", "rtsp": "rtsp://admin:pass@192.168.1.102:554/stream1"},
-    {"id": "cam-3", "ad": "Paketleme Hattı", "rtsp": "rtsp://admin:pass@192.168.1.103:554/stream1"},
-    {"id": "cam-4", "ad": "Depo Koridoru", "rtsp": "rtsp://admin:pass@192.168.1.104:554/stream1"},
-    {"id": "cam-5", "ad": "Sevkiyat Rampası", "rtsp": "rtsp://admin:pass@192.168.1.105:554/stream1"},
-]
+SETTINGS_CAMERAS = build_facility_cameras("demo", 12)
 
 COMPARE_PRESETS = {
     "bugun_dun": {

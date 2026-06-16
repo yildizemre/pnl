@@ -1,3 +1,6 @@
+import Sparkline from "./Sparkline";
+import AnimatedCounter from "./AnimatedCounter";
+
 const ACCENT_MAP = {
   green: "stat-card-accent-green",
   blue: "stat-card-accent-blue",
@@ -34,19 +37,54 @@ export function StatusBadge({ children, variant }) {
   );
 }
 
-export function StatCard({ title, value, subtitle, subtitleClass, icon: Icon, accent = "blue" }) {
+export function StatCard({
+  title,
+  value,
+  subtitle,
+  subtitleClass,
+  icon: Icon,
+  accent = "blue",
+  sparkline,
+  compareActive = false,
+  counter,
+  counterPrefix = "",
+  counterSuffix = "",
+  counterDecimals = 0,
+  locale = "tr-TR",
+  bentoClass = "",
+}) {
+  const displayValue =
+    counter != null ? (
+      <AnimatedCounter
+        value={counter}
+        prefix={counterPrefix}
+        suffix={counterSuffix}
+        decimals={counterDecimals}
+        locale={locale}
+      />
+    ) : (
+      value
+    );
+
   return (
-    <div className={`stat-card ${ACCENT_MAP[accent] || ACCENT_MAP.blue}`}>
+    <div
+      className={`stat-card ${ACCENT_MAP[accent] || ACCENT_MAP.blue} ${compareActive ? "stat-card-compare" : ""} ${bentoClass}`}
+    >
       <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <p className="text-sm font-medium text-[var(--text-muted)]">{title}</p>
-          <p className="mt-2 text-2xl font-bold tracking-tight text-[var(--text-primary)] sm:text-3xl">{value}</p>
+          <p className="mt-2 text-2xl font-bold tracking-tight text-[var(--text-primary)] sm:text-3xl">{displayValue}</p>
           {subtitle && (
             <p className={`mt-1.5 text-xs font-medium ${subtitleClass || "text-[var(--text-muted)]"}`}>{subtitle}</p>
           )}
+          {sparkline?.length > 0 && (
+            <div className="mt-3">
+              <Sparkline data={sparkline} accent={accent} />
+            </div>
+          )}
         </div>
         {Icon && (
-          <div className={`shrink-0 rounded-xl bg-[var(--accent-bg)] p-2.5 ${ICON_COLOR[accent]}`}>
+          <div className={`stat-card-icon shrink-0 rounded-lg p-2.5 ${ICON_COLOR[accent]}`}>
             <Icon className="h-5 w-5" />
           </div>
         )}
@@ -85,20 +123,21 @@ export function DataTable({ children, minWidth = "640px" }) {
 export function ChartTooltipTraffic({ active, payload, label }) {
   if (!active || !payload?.length) return null;
   return (
-    <div className="chart-tooltip px-3 py-2 shadow-lg">
+    <div className="chart-tooltip chart-tooltip-themed px-3 py-2.5 shadow-lg">
       <p className="text-xs text-[var(--text-muted)]">{label}</p>
       <p className="text-sm font-semibold text-emerald-500">{payload[0].value} kisi</p>
     </div>
   );
 }
 
-export function ChartTooltipBar({ active, payload }) {
+export function ChartTooltipBar({ active, payload, label }) {
   if (!active || !payload?.length) return null;
   const p = payload[0].payload;
   return (
-    <div className="chart-tooltip px-3 py-2 shadow-lg">
-      <p className="text-sm font-semibold text-[var(--text-primary)]">{p.tur || p.hat || p.bolge}</p>
-      <p className="text-xs text-orange-500">{payload[0].value}</p>
+    <div className="chart-tooltip chart-tooltip-themed px-3 py-2.5 shadow-lg">
+      <p className="text-xs text-[var(--text-muted)]">{label}</p>
+      <p className="text-sm font-semibold text-[var(--text-primary)]">{p.tur || p.hat || p.bolge || p.kategori}</p>
+      <p className="text-xs font-medium text-cyan-500">{payload[0].value}</p>
     </div>
   );
 }

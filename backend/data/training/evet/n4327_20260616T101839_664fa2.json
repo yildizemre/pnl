@@ -1,0 +1,22 @@
+{
+  "notification_id": 4327,
+  "label": "evet",
+  "saved_at": "2026-06-16T10:18:39.816275+00:00",
+  "image": null,
+  "notification": {
+    "id": 4327,
+    "user_id": "u-71adf683",
+    "tarih": "2026-06-16",
+    "zaman": "16:31",
+    "kamera": "Sevkiyat Rampası",
+    "kategori": "Üretim",
+    "baslik": "Palet sayım farkı",
+    "detay": "Beklenen 24 — sayılan 19",
+    "seviye": "uyari",
+    "modul": "Ürün Sayım",
+    "gorsel": "/api/placeholder/uretim-2.jpg",
+    "okundu": false,
+    "meta": {},
+    "feedback": null
+  }
+}

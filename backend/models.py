@@ -59,6 +59,8 @@ class NotificationModel(Base):
     modul = Column(String(128), default="")
     gorsel = Column(String(512), default="")
     okundu = Column(Boolean, default=False)
+    meta_json = Column(Text, default="{}")
+    feedback = Column(String(16), nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     user = relationship("UserModel", back_populates="notifications")
@@ -70,6 +72,7 @@ class HeartbeatModel(Base):
     user_id = Column(String(64), primary_key=True)
     camera_id = Column(String(64), nullable=True)
     zaman = Column(DateTime(timezone=True), nullable=False)
+    ai_zaman = Column(DateTime(timezone=True), nullable=True)
 
 
 class DailyMetricModel(Base):
@@ -86,6 +89,37 @@ class DailyMetricModel(Base):
     log_sayisi = Column(Integer, default=0)
 
 
+class ApiKeyModel(Base):
+    """Harici sistemler (mobil, AI sunucu) için kullanıcıya bağlı API anahtarı."""
+
+    __tablename__ = "api_keys"
+
+    id = Column(String(64), primary_key=True)
+    user_id = Column(String(64), ForeignKey("users.id"), nullable=False, index=True)
+    label = Column(String(128), default="")
+    key_hash = Column(String(512), nullable=False)
+    key_prefix = Column(String(32), nullable=False)
+    active = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    last_used_at = Column(DateTime(timezone=True), nullable=True)
+
+    user = relationship("UserModel", backref="api_keys")
+
+
+class FloorPlanModel(Base):
+    """Kullanıcıya özel saha kroki + kamera noktaları."""
+
+    __tablename__ = "floor_plans"
+
+    user_id = Column(String(64), ForeignKey("users.id"), primary_key=True)
+    mode = Column(String(16), default="default")  # default | image
+    background = Column(String(512), default="")
+    points_json = Column(Text, default="[]")
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    user = relationship("UserModel", backref="floor_plan", uselist=False)
+
+
 _connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
 engine = create_engine(
     DATABASE_URL,
@@ -97,3 +131,21 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 def init_db():
     Base.metadata.create_all(bind=engine)
+    _migrate()
+
+
+def _migrate():
+    from sqlalchemy import text
+
+    with engine.connect() as conn:
+        rows = conn.execute(text("PRAGMA table_info(notifications)")).fetchall()
+        cols = {row[1] for row in rows}
+        if "meta_json" not in cols:
+            conn.execute(text("ALTER TABLE notifications ADD COLUMN meta_json TEXT DEFAULT '{}'"))
+        if "feedback" not in cols:
+            conn.execute(text("ALTER TABLE notifications ADD COLUMN feedback VARCHAR(16)"))
+        hb_rows = conn.execute(text("PRAGMA table_info(heartbeats)")).fetchall()
+        hb_cols = {row[1] for row in hb_rows}
+        if "ai_zaman" not in hb_cols:
+            conn.execute(text("ALTER TABLE heartbeats ADD COLUMN ai_zaman DATETIME"))
+        conn.commit()

@@ -1,12 +1,20 @@
-import { createContext, useCallback, useContext, useEffect, useState } from "react";
+import { createContext, useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../api";
 
-const AuthContext = createContext(null);
+export const AuthContext = createContext(null);
+
+function isAuthError(err) {
+  const status = err?.status;
+  if (status === 401 || status === 403) return true;
+  const msg = String(err?.message || "");
+  return /geçersiz oturum|giriş gerekli|unauthorized|401/i.test(msg);
+}
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [token, setToken] = useState(() => localStorage.getItem("hv_token"));
   const [loading, setLoading] = useState(true);
+  const sessionReadyRef = useRef(false);
 
   const applySession = useCallback((t, u) => {
     setToken(t);
@@ -17,41 +25,75 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     if (!token) {
+      sessionReadyRef.current = false;
       setLoading(false);
-      return;
+      return undefined;
     }
+    if (sessionReadyRef.current) {
+      setLoading(false);
+      return undefined;
+    }
+
+    let cancelled = false;
     api
       .me()
-      .then((u) => setUser(u))
-      .catch(() => applySession(null, null))
-      .finally(() => setLoading(false));
+      .then((u) => {
+        if (!cancelled) {
+          setUser(u);
+          sessionReadyRef.current = true;
+        }
+      })
+      .catch((err) => {
+        if (!cancelled && isAuthError(err)) {
+          sessionReadyRef.current = false;
+          applySession(null, null);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [token, applySession]);
 
-  const login = async (email, password) => {
-    const res = await api.login(email, password);
+  const login = async (loginId, password) => {
+    const res = await api.login(loginId, password);
+    sessionReadyRef.current = true;
     applySession(res.token, res.user);
+    setLoading(false);
     return res.user;
   };
 
-  const logout = () => applySession(null, null);
+  const logout = () => {
+    sessionReadyRef.current = false;
+    applySession(null, null);
+    setLoading(false);
+  };
 
   const impersonate = async (userId) => {
     const res = await api.impersonate(userId);
     localStorage.setItem("hv_admin_token", token);
+    sessionReadyRef.current = true;
     applySession(res.token, res.user);
   };
 
   const exitImpersonation = async () => {
     const adminToken = localStorage.getItem("hv_admin_token");
-    if (adminToken) {
-      localStorage.removeItem("hv_admin_token");
-      applySession(adminToken, null);
-      try {
-        const u = await api.me();
-        setUser(u);
-      } catch {
-        applySession(null, null);
-      }
+    if (!adminToken) return;
+    localStorage.removeItem("hv_admin_token");
+    sessionReadyRef.current = false;
+    applySession(adminToken, null);
+    setLoading(true);
+    try {
+      const u = await api.me();
+      setUser(u);
+      sessionReadyRef.current = true;
+    } catch (err) {
+      if (isAuthError(err)) applySession(null, null);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -69,5 +111,3 @@ export function AuthProvider({ children }) {
     </AuthContext.Provider>
   );
 }
-
-export const useAuth = () => useContext(AuthContext);

@@ -1,4 +1,5 @@
-import { AuthProvider, useAuth } from "./context/AuthContext";
+import { AuthProvider } from "./context/AuthContext";
+import { useAuth } from "./hooks/useAuth";
 import { LocaleProvider } from "./context/LocaleContext";
 import { ThemeProvider } from "./context/ThemeContext";
 import Dashboard from "./Dashboard";
