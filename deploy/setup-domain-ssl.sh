@@ -1,6 +1,6 @@
 #!/bin/bash
 # panel.hypevisionlab.com + Let's Encrypt SSL
-# Kullanım: deactivate 2>/dev/null; cd ~/hp-pan && sudo ./deploy/setup-domain-ssl.sh
+# Kullanım: deactivate 2>/dev/null; cd /home/pnl && sudo ./deploy/setup-domain-ssl.sh
 #
 # Not: venv aktifken apt certbot pyOpenSSL ile çakışabilir — script temiz ortam kullanır.
 
@@ -17,6 +17,10 @@ echo "Proje:  $PROJECT_DIR"
 
 chmod 755 /root 2>/dev/null || true
 chmod -R 755 "$PROJECT_DIR/dist" 2>/dev/null || true
+chmod 755 "$PROJECT_DIR" 2>/dev/null || true
+PARENT="$(dirname "$PROJECT_DIR")"
+if [ "$PARENT" != "/" ]; then chmod 755 "$PARENT" 2>/dev/null || true; fi
+if [ "$(dirname "$PARENT")" != "/" ]; then chmod 755 "$(dirname "$PARENT")" 2>/dev/null || true; fi
 
 NGINX_CONF="/etc/nginx/sites-available/hypevision"
 sed "s|/root/hp-pan|$PROJECT_DIR|g" "$PROJECT_DIR/deploy/nginx-hypevision.conf" | tee "$NGINX_CONF" >/dev/null

@@ -1,6 +1,6 @@
 #!/bin/bash
 # HypeVision VDS kurulumu — Ubuntu/Debian
-# Kullanım: cd ~/hp-pan && chmod +x deploy/install-vds.sh && sudo ./deploy/install-vds.sh
+# Kullanım: cd /home/pnl && chmod +x deploy/install-vds.sh && sudo ./deploy/install-vds.sh
 
 set -e
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -34,6 +34,12 @@ EOF
   echo "[2] backend/.env oluşturuldu"
 fi
 mkdir -p "$PROJECT_DIR/backend/data" "$PROJECT_DIR/backend/uploads"
+
+# nginx (www-data) dist okuyabilsin
+chmod 755 "$PROJECT_DIR" "$PROJECT_DIR/dist" 2>/dev/null || true
+PARENT="$(dirname "$PROJECT_DIR")"
+if [ "$PARENT" != "/" ]; then chmod 755 "$PARENT" 2>/dev/null || true; fi
+if [ "$(dirname "$PARENT")" != "/" ]; then chmod 755 "$(dirname "$PARENT")" 2>/dev/null || true; fi
 
 # --- Frontend build ---
 if [ -f "$PROJECT_DIR/dist/index.html" ]; then
