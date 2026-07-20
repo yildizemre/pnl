@@ -1,14 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  Area, AreaChart, Bar, BarChart, CartesianGrid, Cell,
+  Area, AreaChart, CartesianGrid,
   ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
 import { LayoutDashboard, MessageSquare, ChevronDown, ChevronUp } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
 import { useLocale } from "../context/LocaleContext";
-import { translateCategory } from "../i18n/helpers";
 import { api } from "../api";
-import { CHART, axisTick, chartTooltipStyle, gridStroke } from "../lib/chartTheme";
+import { CHART, axisTick, gridStroke } from "../lib/chartTheme";
 import { computeRiskScore } from "../data/operationsCenter";
 import CompareToggle from "../components/CompareToggle";
 import CameraCapabilityList from "../components/CameraCapabilityList";
@@ -17,6 +16,9 @@ import { ChartTooltipTraffic, Panel } from "../components/ui";
 import AiAssistant from "../components/experience/AiAssistant";
 import { HomeInsightsPanel, HomeSystemPanel } from "../components/operations/VocPanels";
 import HomeKpiBoard from "../components/HomeKpiBoard";
+import IsgHeroBanner from "../components/isg/IsgHeroBanner";
+import EventCategoryPanel from "../components/isg/EventCategoryPanel";
+import IsgTrendCharts from "../components/isg/IsgTrendCharts";
 
 const VIEWS = [
   { id: "main", icon: LayoutDashboard, labelKey: "homeViewMain" },
@@ -49,11 +51,6 @@ export default function HomeView({ data, compare, onCompareChange }) {
     [s, data.today_notifications, data.notifications]
   );
 
-  const stats = (data.notification_stats || []).map((x) => ({
-    ...x,
-    kategori: translateCategory(locale, x.kategori),
-  }));
-
   const traffic = useMemo(() => {
     if (compareActive && cmp?.traffic?.length) return cmp.traffic;
     return data.traffic || [];
@@ -85,9 +82,13 @@ export default function HomeView({ data, compare, onCompareChange }) {
     : (risk.level === "low" ? "Düşük risk" : risk.level === "mid" ? "Orta risk" : "Yüksek risk");
 
   const presenceAvg = data.productivity?.ortalama_yerinde;
+  const notifs = data.notifications || [];
+  const todayNotifs = data.today_notifications || notifs.filter((n) => n.tarih === data.dates?.[0]);
 
   return (
     <div className="dash-home">
+      <IsgHeroBanner summary={s} todayNotifications={todayNotifs} />
+
       <div className="dash-home-bar">
         <CompareToggle value={compare} onChange={onCompareChange} compare={cmp} />
         <div className="dash-view-pills" role="tablist">
@@ -121,14 +122,15 @@ export default function HomeView({ data, compare, onCompareChange }) {
             ChangeBadge={ChangeBadge}
           />
 
-          <section className="dash-charts">
+          <section className="dash-isg-grid">
+            <EventCategoryPanel notifications={notifs} />
             <Panel
               title={t.sistemAktivitesi}
               subtitle={compareActive ? t.compareTrafficSub : t.son24Saat}
               badge={<span className="live-pill">{t.canli}</span>}
             >
               {traffic.length ? (
-                <ResponsiveContainer width="100%" height={200}>
+                <ResponsiveContainer width="100%" height={220}>
                   <AreaChart data={traffic}>
                     <defs>
                       <linearGradient id="dashTrafficGrad" x1="0" y1="0" x2="0" y2="1">
@@ -164,25 +166,9 @@ export default function HomeView({ data, compare, onCompareChange }) {
                 <EmptyChart />
               )}
             </Panel>
-
-            <Panel title={t.bildirimler} subtitle={t.tumKategoriler}>
-              {stats.length ? (
-                <ResponsiveContainer width="100%" height={200}>
-                  <BarChart data={stats}>
-                    <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} vertical={false} />
-                    <XAxis dataKey="kategori" tick={axisTick} axisLine={false} tickLine={false} />
-                    <YAxis tick={axisTick} axisLine={false} tickLine={false} />
-                    <Tooltip contentStyle={chartTooltipStyle()} />
-                    <Bar dataKey="adet" radius={[6, 6, 0, 0]}>
-                      {stats.map((row) => <Cell key={row.kategori} fill={row.renk} />)}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              ) : (
-                <EmptyChart />
-              )}
-            </Panel>
           </section>
+
+          <IsgTrendCharts notifications={notifs} />
 
           <section className="dash-footer">
             <HomeInsightsPanel data={data} />

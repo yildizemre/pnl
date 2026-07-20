@@ -11,6 +11,7 @@ import { translateCategory } from "../../i18n/helpers";
 import FilterBar from "../FilterBar";
 import { EmptyChart } from "../EmptyState";
 import { Panel, StatCard } from "../ui";
+import EventCategoryPanel from "../isg/EventCategoryPanel";
 import { CHART, axisTick, chartTooltipStyle, gridStroke } from "../../lib/chartTheme";
 
 const INSIGHT_ICON = {
@@ -98,6 +99,17 @@ export default function NotificationInsightsView({ dates = [] }) {
               accent="green"
             />
           </div>
+
+          <section className="isg-analytics-row isg-analytics-row--single">
+            <EventCategoryPanel
+              notifications={(kpi.kategoriler || []).flatMap((row) =>
+                Array.from({ length: Math.max(0, row.adet || 0) }, (_, i) => ({
+                  id: `${row.kategori}-${i}`,
+                  kategori: row.kategori,
+                }))
+              )}
+            />
+          </section>
 
           <Panel title={t.isgYanlisAlarm} subtitle={t.isgYanlisAlarmAlt}>
             {falseAlarmChart.length ? (

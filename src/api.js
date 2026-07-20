@@ -67,6 +67,8 @@ export const api = {
   impersonate: (userId) => fetchJson(`/api/admin/impersonate/${userId}`, { method: "POST" }),
   listUsers: () => fetchJson("/api/admin/users"),
   createUser: (body) => fetchJson("/api/admin/users", { method: "POST", body: JSON.stringify(body) }),
+  updateUser: (userId, body) =>
+    fetchJson(`/api/admin/users/${userId}`, { method: "PATCH", body: JSON.stringify(body) }),
   deleteUser: (userId) => fetchJson(`/api/admin/users/${userId}`, { method: "DELETE" }),
   mesProductivity: (tarih) => fetchJson(`/api/mes/productivity${tarih ? `?tarih=${tarih}` : ""}`),
   reportsKpis: (tarih) => fetchJson(`/api/reports/kpis${tarih ? `?tarih=${tarih}` : ""}`),

@@ -23,6 +23,7 @@ class UserModel(Base):
     sifre_hash = Column(String(512), nullable=False)
     rol = Column(String(32), default="user")
     kurulum = Column(String(256), default="")
+    modules_json = Column(Text, default="")  # kullanıcıya özel menü yetkileri JSON listesi
     dashboard_layout = Column(Text, default="{}")
     onboarding_done = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
@@ -180,4 +181,8 @@ def _migrate():
         hb_cols = {row[1] for row in hb_rows}
         if "ai_zaman" not in hb_cols:
             conn.execute(text("ALTER TABLE heartbeats ADD COLUMN ai_zaman DATETIME"))
+        user_rows = conn.execute(text("PRAGMA table_info(users)")).fetchall()
+        user_cols = {row[1] for row in user_rows}
+        if "modules_json" not in user_cols:
+            conn.execute(text("ALTER TABLE users ADD COLUMN modules_json TEXT DEFAULT ''"))
         conn.commit()

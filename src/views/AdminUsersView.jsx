@@ -1,11 +1,67 @@
 import { useEffect, useMemo, useState } from "react";
-import { Copy, ExternalLink, Key, Plus, RotateCcw, Trash2, Users } from "lucide-react";
+import { Copy, ExternalLink, Key, Pencil, Plus, RotateCcw, Trash2, Users, X } from "lucide-react";
 import { api } from "../api";
 import { useAuth } from "../hooks/useAuth";
 import { useLocale } from "../context/LocaleContext";
 import { ROLE_LABELS_EN, ROLE_LABELS_TR } from "../lib/roles";
+import { DEFAULT_USER_MODULES, PANEL_MODULES, modulesForRole } from "../lib/modules";
 import FilterBar from "../components/FilterBar";
 import { DataTable, Panel, StatusBadge } from "../components/ui";
+
+function splitAd(ad = "") {
+  const parts = String(ad || "").trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return { isim: "", soyisim: "" };
+  if (parts.length === 1) return { isim: parts[0], soyisim: "" };
+  return { isim: parts[0], soyisim: parts.slice(1).join(" ") };
+}
+
+const emptyForm = () => ({
+  kullanici_adi: "",
+  isim: "",
+  soyisim: "",
+  email: "",
+  sifre: "demo123",
+  rol: "user",
+  kurulum: "",
+  moduller: [...DEFAULT_USER_MODULES],
+});
+
+function ModuleChecklist({ value, onChange, t }) {
+  const toggle = (id, locked) => {
+    if (locked) return;
+    if (value.includes(id)) {
+      onChange(value.filter((m) => m !== id));
+    } else {
+      onChange([...value, id]);
+    }
+  };
+
+  return (
+    <div className="admin-modules">
+      <p className="admin-modules-title">{t.aktifModuller}</p>
+      <p className="admin-modules-hint">{t.aktifModullerHint}</p>
+      <div className="admin-modules-grid">
+        {PANEL_MODULES.map((m) => {
+          const checked = value.includes(m.id);
+          return (
+            <label
+              key={m.id}
+              className={`admin-module-item ${m.locked ? "admin-module-item--locked" : ""} ${checked ? "admin-module-item--on" : ""}`}
+            >
+              <input
+                type="checkbox"
+                checked={checked}
+                disabled={m.locked}
+                onChange={() => toggle(m.id, m.locked)}
+              />
+              <span>{t[m.labelKey] || m.id}</span>
+            </label>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 export default function AdminUsersView() {
   const { user: currentUser, impersonate } = useAuth();
@@ -13,19 +69,15 @@ export default function AdminUsersView() {
   const roleLabels = locale === "EN" ? ROLE_LABELS_EN : ROLE_LABELS_TR;
   const [users, setUsers] = useState([]);
   const [search, setSearch] = useState("");
-  const [showForm, setShowForm] = useState(false);
+  const [modal, setModal] = useState(null); // "create" | "edit"
+  const [editUser, setEditUser] = useState(null);
+  const [form, setForm] = useState(emptyForm);
+  const [formError, setFormError] = useState("");
+  const [saving, setSaving] = useState(false);
   const [keyUser, setKeyUser] = useState(null);
   const [keys, setKeys] = useState([]);
   const [newKeyRaw, setNewKeyRaw] = useState("");
   const [keyLabel, setKeyLabel] = useState("Mobil / Entegrasyon");
-  const [form, setForm] = useState({
-    kullanici_adi: "",
-    ad: "",
-    email: "",
-    sifre: "demo123",
-    rol: "user",
-    kurulum: "",
-  });
 
   const load = () => api.listUsers().then((r) => setUsers(r.data));
 
@@ -44,12 +96,78 @@ export default function AdminUsersView() {
     );
   }, [users, search]);
 
+  const openCreate = () => {
+    setEditUser(null);
+    setForm(emptyForm());
+    setFormError("");
+    setModal("create");
+  };
+
+  const openEdit = (u) => {
+    const parts = splitAd(u.ad);
+    setEditUser(u);
+    setForm({
+      kullanici_adi: u.kullanici_adi || "",
+      isim: parts.isim,
+      soyisim: parts.soyisim,
+      email: u.email || "",
+      sifre: "",
+      rol: u.rol || "user",
+      kurulum: u.kurulum || "",
+      moduller: (u.moduller || modulesForRole(u.rol)).filter((m) => m !== "uyelik" && m !== "urun"),
+    });
+    setFormError("");
+    setModal("edit");
+  };
+
+  const closeModal = () => {
+    setModal(null);
+    setEditUser(null);
+    setFormError("");
+  };
+
   const submit = async (e) => {
     e.preventDefault();
-    await api.createUser(form);
-    setShowForm(false);
-    setForm({ kullanici_adi: "", ad: "", email: "", sifre: "demo123", rol: "user", kurulum: "" });
-    load();
+    setFormError("");
+    const isim = form.isim.trim();
+    const soyisim = form.soyisim.trim();
+    if (!isim || !soyisim) {
+      setFormError(t.isimSoyisimZorunlu);
+      return;
+    }
+    const moduller = form.moduller.includes("ana") ? form.moduller : ["ana", ...form.moduller];
+    setSaving(true);
+    try {
+      if (modal === "create") {
+        await api.createUser({
+          kullanici_adi: form.kullanici_adi.trim(),
+          isim,
+          soyisim,
+          ad: `${isim} ${soyisim}`,
+          email: form.email.trim(),
+          sifre: form.sifre,
+          rol: form.rol,
+          kurulum: form.kurulum.trim(),
+          moduller,
+        });
+      } else if (editUser) {
+        await api.updateUser(editUser.id, {
+          isim,
+          soyisim,
+          ad: `${isim} ${soyisim}`,
+          kullanici_adi: form.kullanici_adi.trim(),
+          rol: form.rol,
+          kurulum: form.kurulum.trim(),
+          moduller,
+        });
+      }
+      closeModal();
+      load();
+    } catch (err) {
+      setFormError(err.message);
+    } finally {
+      setSaving(false);
+    }
   };
 
   const remove = async (u) => {
@@ -112,31 +230,12 @@ export default function AdminUsersView() {
         date=""
         onDateChange={() => {}}
         extra={
-          <button type="button" onClick={() => setShowForm(!showForm)} className="btn-secondary">
+          <button type="button" onClick={openCreate} className="btn-secondary">
             <Plus className="h-4 w-4" />
             {t.yeniKullanici}
           </button>
         }
       />
-
-      {showForm && (
-        <form
-          onSubmit={submit}
-          className="panel panel-body grid gap-3 sm:grid-cols-2 lg:grid-cols-3"
-        >
-          <input className="input-dark" placeholder={t.kullaniciAdi} required value={form.kullanici_adi} onChange={(e) => setForm({ ...form, kullanici_adi: e.target.value })} />
-          <input className="input-dark" placeholder={t.gorunenAd} required value={form.ad} onChange={(e) => setForm({ ...form, ad: e.target.value })} />
-          <input className="input-dark" type="email" placeholder={t.email} required value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
-          <input className="input-dark" type="password" placeholder={t.sifre} required value={form.sifre} onChange={(e) => setForm({ ...form, sifre: e.target.value })} />
-          <input className="input-dark" placeholder={t.kurulum} value={form.kurulum} onChange={(e) => setForm({ ...form, kurulum: e.target.value })} />
-          <select className="input-dark" value={form.rol} onChange={(e) => setForm({ ...form, rol: e.target.value })}>
-            {Object.entries(roleLabels).map(([id, label]) => (
-              <option key={id} value={id}>{label}</option>
-            ))}
-          </select>
-          <button type="submit" className="btn-primary sm:col-span-2 lg:col-span-3">{t.kaydet}</button>
-        </form>
-      )}
 
       <Panel flush>
         <DataTable minWidth="720px">
@@ -175,9 +274,16 @@ export default function AdminUsersView() {
                   <td className="text-[var(--text-muted)]">
                     <p>{u.kamera_sayisi} {t.kamera}</p>
                     {u.kurulum && <p className="text-xs text-[var(--accent)]">• {u.kurulum}</p>}
+                    <p className="text-xs text-[var(--text-muted)]">
+                      {(u.moduller || []).filter((m) => m !== "uyelik").length} {t.modul}
+                    </p>
                   </td>
                   <td className="text-right">
                     <div className="flex flex-wrap justify-end gap-1">
+                      <button type="button" onClick={() => openEdit(u)} className="btn-ghost" title={t.duzenle}>
+                        <Pencil className="h-3.5 w-3.5" />
+                        {t.duzenle}
+                      </button>
                       <button type="button" onClick={() => openKeys(u)} className="btn-ghost" title={t.apiAnahtari}>
                         <Key className="h-3.5 w-3.5" />
                         API
@@ -207,6 +313,124 @@ export default function AdminUsersView() {
           </tbody>
         </DataTable>
       </Panel>
+
+      {modal && (
+        <div className="admin-company-backdrop" onClick={closeModal} role="presentation">
+          <form
+            className="admin-company-modal"
+            onClick={(e) => e.stopPropagation()}
+            onSubmit={submit}
+          >
+            <header className="admin-company-head">
+              <h3>{modal === "create" ? t.yeniKullanici : t.sirketiDuzenle}</h3>
+              <button type="button" className="admin-company-close" onClick={closeModal} aria-label={t.kapat}>
+                <X className="h-5 w-5" />
+              </button>
+            </header>
+
+            <div className="admin-company-body">
+              <div className="admin-company-fields">
+                <label>
+                  <span>{t.isim}</span>
+                  <input
+                    className="input-dark"
+                    required
+                    value={form.isim}
+                    onChange={(e) => setForm({ ...form, isim: e.target.value })}
+                    placeholder="Ahmet"
+                  />
+                </label>
+                <label>
+                  <span>{t.soyisim}</span>
+                  <input
+                    className="input-dark"
+                    required
+                    value={form.soyisim}
+                    onChange={(e) => setForm({ ...form, soyisim: e.target.value })}
+                    placeholder="Yılmaz"
+                  />
+                </label>
+                <label>
+                  <span>{t.kullaniciAdi}</span>
+                  <input
+                    className="input-dark"
+                    required
+                    value={form.kullanici_adi}
+                    onChange={(e) => setForm({ ...form, kullanici_adi: e.target.value })}
+                  />
+                </label>
+                {modal === "create" && (
+                  <label>
+                    <span>{t.email}</span>
+                    <input
+                      className="input-dark"
+                      type="email"
+                      required
+                      value={form.email}
+                      onChange={(e) => setForm({ ...form, email: e.target.value })}
+                    />
+                  </label>
+                )}
+                {modal === "create" && (
+                  <label>
+                    <span>{t.sifre}</span>
+                    <input
+                      className="input-dark"
+                      type="password"
+                      required
+                      value={form.sifre}
+                      onChange={(e) => setForm({ ...form, sifre: e.target.value })}
+                    />
+                  </label>
+                )}
+                <label>
+                  <span>{t.kurulum} / {t.sirketAdi}</span>
+                  <input
+                    className="input-dark"
+                    value={form.kurulum}
+                    onChange={(e) => setForm({ ...form, kurulum: e.target.value })}
+                    placeholder="City Lojistik"
+                  />
+                </label>
+                <label>
+                  <span>{t.rol}</span>
+                  <select
+                    className="input-dark"
+                    value={form.rol}
+                    onChange={(e) => {
+                      const rol = e.target.value;
+                      setForm({
+                        ...form,
+                        rol,
+                        moduller: modulesForRole(rol),
+                      });
+                    }}
+                  >
+                    {Object.entries(roleLabels).map(([id, label]) => (
+                      <option key={id} value={id}>{label}</option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+
+              <ModuleChecklist
+                value={form.moduller}
+                onChange={(moduller) => setForm({ ...form, moduller })}
+                t={t}
+              />
+
+              {formError && <p className="text-sm text-red-500">{formError}</p>}
+            </div>
+
+            <footer className="admin-company-foot">
+              <button type="button" className="btn-ghost" onClick={closeModal}>{t.vazgec}</button>
+              <button type="submit" className="btn-primary" disabled={saving}>
+                {saving ? "…" : t.kaydet}
+              </button>
+            </footer>
+          </form>
+        </div>
+      )}
 
       {keyUser && (
         <div className="admin-key-backdrop" onClick={() => setKeyUser(null)} role="presentation">

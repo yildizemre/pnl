@@ -64,6 +64,7 @@ from store import (
     get_integration_status,
     save_floor_plan,
     seed_if_empty,
+    update_user,
     update_user_layout,
     user_public,
     verify_password,
@@ -111,11 +112,39 @@ class LoginBody(BaseModel):
 
 class UserCreate(BaseModel):
     kullanici_adi: str
-    ad: str
+    ad: str = ""
+    isim: str = ""
+    soyisim: str = ""
     email: EmailStr
     sifre: str
     rol: str = "user"
     kurulum: str = ""
+    moduller: Optional[List[str]] = None
+
+    def resolved_ad(self) -> str:
+        full = f"{(self.isim or '').strip()} {(self.soyisim or '').strip()}".strip()
+        name = full or (self.ad or "").strip()
+        if not name:
+            raise ValueError("İsim soyisim gerekli")
+        return name
+
+
+class UserUpdate(BaseModel):
+    ad: Optional[str] = None
+    isim: Optional[str] = None
+    soyisim: Optional[str] = None
+    kullanici_adi: Optional[str] = None
+    rol: Optional[str] = None
+    kurulum: Optional[str] = None
+    moduller: Optional[List[str]] = None
+
+    def resolved_ad(self) -> str | None:
+        if self.isim is not None or self.soyisim is not None:
+            full = f"{(self.isim or '').strip()} {(self.soyisim or '').strip()}".strip()
+            return full or None
+        if self.ad is not None:
+            return self.ad.strip() or None
+        return None
 
 
 class PasswordChange(BaseModel):
@@ -381,8 +410,30 @@ def admin_list_users(_: dict = Depends(require_admin)):
 def add_user(body: UserCreate, _: dict = Depends(require_admin)):
     if find_user_by_email(body.email):
         raise HTTPException(400, "Email zaten kayıtlı")
-    u = create_user(body.model_dump())
+    try:
+        ad = body.resolved_ad()
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    payload = body.model_dump()
+    payload["ad"] = ad
+    u = create_user(payload)
     return user_public(u)
+
+
+@app.patch("/api/admin/users/{user_id}")
+def admin_update_user(user_id: str, body: UserUpdate, _: dict = Depends(require_admin)):
+    if not find_user_by_id(user_id):
+        raise HTTPException(404, "Kullanıcı bulunamadı")
+    data = body.model_dump(exclude_unset=True)
+    resolved = body.resolved_ad()
+    if resolved is not None:
+        data["ad"] = resolved
+    data.pop("isim", None)
+    data.pop("soyisim", None)
+    u = update_user(user_id, data)
+    if not u:
+        raise HTTPException(404, "Kullanıcı bulunamadı")
+    return {"ok": True, "user": user_public(u)}
 
 
 @app.post("/api/admin/users/{user_id}/reset-panel-data")

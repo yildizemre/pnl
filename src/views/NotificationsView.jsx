@@ -11,6 +11,8 @@ import NotificationTable from "../components/notifications/NotificationTable";
 import NotificationDetailModal from "../components/notifications/NotificationDetailModal";
 import NotificationInsightsView from "../components/notifications/NotificationInsightsView";
 import TrainingFeedbackView from "../components/notifications/TrainingFeedbackView";
+import EventCategoryPanel from "../components/isg/EventCategoryPanel";
+import IsgTrendCharts from "../components/isg/IsgTrendCharts";
 import {
   EVENT_TYPES, SEVIYELER, countByEventType, kritikCount,
 } from "../data/notificationTypes";
@@ -135,6 +137,11 @@ export default function NotificationsView({ data, onNotificationUpdated, onRefre
             <StatCard title={t.okunmamis} value={unread} subtitle={t.bekleyenKayit} icon={Bell} accent="orange" />
             <StatCard title={t.olayTipleri} value={EVENT_TYPES.filter((e) => typeCounts[e.id] > 0).length} subtitle={t.aktifAlgilama} icon={Flame} accent="cyan" />
           </div>
+
+          <section className="isg-analytics-row">
+            <EventCategoryPanel notifications={list} />
+            <IsgTrendCharts notifications={list} />
+          </section>
 
           <Panel title={t.olayTipiKpi} subtitle={t.olayTipiKpiAlt} className="notif-events-panel">
             <div className="notif-event-kpis">

@@ -57,6 +57,7 @@ from pg_store import (  # noqa: F401
     save_mes_presence,
     seed_if_empty,
     update_camera,
+    update_user,
     update_user_layout,
     user_public,
     verify_password,

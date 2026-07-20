@@ -4,6 +4,7 @@ import { usePageMeta } from "./hooks/usePageMeta";
 import {
   FileBarChart,
   Home,
+  Lock,
   Settings,
   ShieldAlert,
   TrendingUp,
@@ -14,6 +15,7 @@ import HypeLogo from "./components/HypeLogo";
 import { api } from "./api";
 import { useAuth } from "./hooks/useAuth";
 import { useLocale } from "./context/LocaleContext";
+import { PANEL_MODULES } from "./lib/modules";
 import HeaderBar from "./components/HeaderBar";
 import OnboardingTour from "./components/OnboardingTour";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
@@ -84,24 +86,46 @@ export default function Dashboard() {
   const [showTour, setShowTour] = useState(false);
   const [toastNotif, setToastNotif] = useState(null);
   const [popupNotif, setPopupNotif] = useState(null);
+  const [lockToast, setLockToast] = useState("");
   const searchRef = useRef(null);
   const prevUserIdRef = useRef(null);
 
-  const moduller = (user?.moduller || ["ana", "bildirimler", "mes", "raporlar", "ayarlar"]).filter((id) => id !== "urun");
   const isAdmin = user?.rol === "admin" && !isImpersonating;
 
-  const menu = moduller
-    .filter((id) => id !== "ayarlar" && (id !== "uyelik" || isAdmin))
-    .map((id) => ({
-      id,
-      label: t[MENU_LABELS[id]] || id,
-      icon: ICONS[id] || Home,
+  const allowedModules = useMemo(() => {
+    const list = (user?.moduller || ["ana", "bildirimler", "mes", "raporlar", "ayarlar"]).filter(
+      (id) => id !== "urun"
+    );
+    if (isAdmin && !list.includes("uyelik")) list.push("uyelik");
+    return list;
+  }, [user?.moduller, isAdmin]);
+
+  const menu = useMemo(() => {
+    const items = PANEL_MODULES.map((m) => ({
+      id: m.id,
+      label: t[MENU_LABELS[m.id]] || m.id,
+      icon: ICONS[m.id] || Home,
+      locked: !allowedModules.includes(m.id),
     }));
+    if (isAdmin) {
+      items.splice(items.length - 1, 0, {
+        id: "uyelik",
+        label: t.uyelik,
+        icon: Users,
+        locked: false,
+      });
+    }
+    return items;
+  }, [allowedModules, isAdmin, t]);
 
   const navigate = useCallback(
     (id) => {
-      if (!moduller.includes(id) && id !== "uyelik") return;
       if (id === "uyelik" && !isAdmin) return;
+      if (!allowedModules.includes(id)) {
+        setLockToast(t.erisimKisitli);
+        window.setTimeout(() => setLockToast(""), 2200);
+        return;
+      }
       const path = pathForMenu(id);
       if (window.location.pathname !== path) {
         window.history.pushState({ menu: id }, "", path);
@@ -109,7 +133,7 @@ export default function Dashboard() {
       setActiveMenu(id);
       setSidebarOpen(false);
     },
-    [moduller, isAdmin]
+    [allowedModules, isAdmin, t.erisimKisitli]
   );
 
   const loadData = useCallback(async () => {
@@ -274,13 +298,14 @@ export default function Dashboard() {
   usePageMeta(activeMenu, t, locale);
 
   useEffect(() => {
-    if (!menu.find((m) => m.id === activeMenu) && activeMenu !== "ayarlar") {
-      navigate(menu[0]?.id || "ana");
+    const item = menu.find((m) => m.id === activeMenu);
+    if (!item || item.locked) {
+      navigate("ana");
     }
   }, [menu, activeMenu, navigate]);
 
   const View = VIEW_MAP[activeMenu];
-  const current = menu.find((m) => m.id === activeMenu);
+  const current = menu.find((m) => m.id === activeMenu && !m.locked);
   const titles = {
     ana: { title: t.anaSayfa, sub: user?.kurulum || t.adminPanel },
     ayarlar: { title: t.ayarlar, sub: "" },
@@ -313,40 +338,39 @@ export default function Dashboard() {
           <p className="sidebar-tagline w-full text-center" lang="en">{t.sidebarTagline}</p>
         </div>
         <nav className="flex-1 space-y-1 overflow-y-auto overflow-x-hidden px-2 py-4 lg:px-3">
-          {menu.map(({ id, label, icon: Icon }) => {
-            const unreadBadge = id === "bildirimler" ? (live?.unread ?? data?.summary?.bildirim_sayisi ?? 0) : 0;
+          {menu.map(({ id, label, icon: Icon, locked }) => {
+            const unreadBadge = !locked && id === "bildirimler"
+              ? (live?.unread ?? data?.summary?.bildirim_sayisi ?? 0)
+              : 0;
             return (
-            <button
-              key={id}
-              type="button"
-              onClick={() => navigate(id)}
-              data-label={label}
-              className={`nav-item flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-sm font-medium transition ${
-                activeMenu === id ? "nav-active" : "text-[var(--text-muted)] border-transparent hover:bg-[var(--bg-hover)]"
-              }`}
-            >
-              <span className="relative shrink-0">
-                <Icon className="h-4 w-4" />
-                {unreadBadge > 0 && (
-                  <span className="sidebar-badge">{unreadBadge > 9 ? "9+" : unreadBadge}</span>
-                )}
-              </span>
-              {label}
-            </button>
-          );})}
-          {moduller.includes("ayarlar") && (
-            <button
-              type="button"
-              onClick={() => navigate("ayarlar")}
-              data-label={t.ayarlar}
-              className={`nav-item mt-3 flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-sm font-medium ${
-                activeMenu === "ayarlar" ? "nav-active" : "text-[var(--text-muted)] border-transparent hover:bg-[var(--bg-hover)]"
-              }`}
-            >
-              <Settings className="h-4 w-4" />
-              {t.ayarlar}
-            </button>
-          )}
+              <button
+                key={id}
+                type="button"
+                onClick={() => navigate(id)}
+                data-label={label}
+                title={locked ? t.erisimKisitli : label}
+                className={`nav-item flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-sm font-medium transition ${
+                  locked
+                    ? "nav-item--locked"
+                    : activeMenu === id
+                      ? "nav-active"
+                      : "text-[var(--text-muted)] border-transparent hover:bg-[var(--bg-hover)]"
+                }`}
+              >
+                <span className="relative shrink-0">
+                  <Icon className="h-4 w-4" />
+                  {unreadBadge > 0 && (
+                    <span className="sidebar-badge">{unreadBadge > 9 ? "9+" : unreadBadge}</span>
+                  )}
+                </span>
+                <span className="nav-item-label min-w-0 flex-1 text-left">
+                  <span className="block truncate">{label}</span>
+                  {locked && <span className="nav-lock-hint">{t.erisimKisitli}</span>}
+                </span>
+                {locked && <Lock className="h-3.5 w-3.5 shrink-0 opacity-70" />}
+              </button>
+            );
+          })}
         </nav>
         <div className="border-t border-[var(--border)] p-3">
           <div className="flex items-center justify-between rounded-lg border border-[var(--border)] px-3 py-2 text-[11px] text-[var(--text-muted)]">
@@ -367,6 +391,12 @@ export default function Dashboard() {
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col lg:ml-64">
+        {lockToast && (
+          <div className="lock-toast" role="status">
+            <Lock className="h-3.5 w-3.5" />
+            {lockToast}
+          </div>
+        )}
         {isImpersonating && (
           <div className="flex items-center justify-between bg-amber-500/15 border-b border-amber-500/30 px-4 py-2 text-sm text-amber-700 dark:text-amber-300">
             <span>{t.impersonating}: {user?.ad}</span>

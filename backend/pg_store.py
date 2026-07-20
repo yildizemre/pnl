@@ -10,7 +10,7 @@ from passlib.context import CryptContext
 from sqlalchemy.orm import Session, joinedload, object_session
 
 from models import ApiKeyModel, CameraModel, DailyMetricModel, FloorPlanModel, HeartbeatModel, MesPresenceModel, MesStaffDayModel, NotificationModel, SessionLocal, UserModel, init_db
-from roles import modules_for_role
+from roles import modules_for_role, normalize_modules
 from mock_data import NOTIFICATIONS, build_facility_cameras
 from demo_data import (
     ADMIN_EMAIL,
@@ -162,6 +162,7 @@ def user_public(u: UserModel, cameras: list | None = None) -> dict:
     floor_plan = get_floor_plan(u.id)
     points = _floor_plan_points(floor_plan)
     tracked = build_tracked_cameras(floor_plan)
+    mods = normalize_modules(getattr(u, "modules_json", None) or "", rol=u.rol)
     return {
         "id": u.id,
         "kullanici_adi": u.kullanici_adi,
@@ -171,7 +172,7 @@ def user_public(u: UserModel, cameras: list | None = None) -> dict:
         "kurulum": u.kurulum or "",
         "kamera_sayisi": len(points),
         "kameralar": tracked,
-        "moduller": modules_for_role(u.rol),
+        "moduller": mods,
         "onboarding_done": bool(u.onboarding_done),
         "dashboard_layout": json.loads(u.dashboard_layout or "{}"),
     }
@@ -417,6 +418,8 @@ def list_users() -> list[UserModel]:
 
 
 def create_user(data: dict) -> UserModel:
+    rol = data.get("rol", "user")
+    mods = normalize_modules(data.get("moduller"), rol=rol)
     with _session() as db:
         user = UserModel(
             id=f"u-{uuid.uuid4().hex[:8]}",
@@ -424,10 +427,35 @@ def create_user(data: dict) -> UserModel:
             ad=data["ad"],
             email=data["email"].lower(),
             sifre_hash=hash_password(data["sifre"]),
-            rol=data.get("rol", "user"),
+            rol=rol,
             kurulum=data.get("kurulum", "") or "Demo Tesis",
+            modules_json=json.dumps(mods, ensure_ascii=False),
         )
         db.add(user)
+        db.commit()
+        db.refresh(user)
+        return user
+
+
+def update_user(user_id: str, data: dict) -> UserModel | None:
+    """Admin — isim/soyisim (ad), kurulum, rol, menü yetkileri güncelle."""
+    with _session() as db:
+        user = db.query(UserModel).filter(UserModel.id == user_id).first()
+        if not user:
+            return None
+        if "ad" in data and data["ad"] is not None:
+            ad = str(data["ad"]).strip()
+            if ad:
+                user.ad = ad
+        if "kurulum" in data and data["kurulum"] is not None:
+            user.kurulum = str(data["kurulum"]).strip()
+        if "rol" in data and data["rol"]:
+            user.rol = str(data["rol"]).strip()
+        if "kullanici_adi" in data and data["kullanici_adi"]:
+            user.kullanici_adi = str(data["kullanici_adi"]).strip()
+        if "moduller" in data:
+            mods = normalize_modules(data.get("moduller"), rol=user.rol)
+            user.modules_json = json.dumps(mods, ensure_ascii=False)
         db.commit()
         db.refresh(user)
         return user
