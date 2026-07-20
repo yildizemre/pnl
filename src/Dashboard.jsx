@@ -1,17 +1,11 @@
 import { useCallback, useEffect, useRef, useState, useMemo } from "react";
 import { menuFromPath, pathForMenu } from "./lib/routes";
-import { findPointForNotification } from "./lib/floorPlan";
 import { usePageMeta } from "./hooks/usePageMeta";
 import {
-  Bell,
-  ChevronLeft,
-  ChevronRight,
   FileBarChart,
   Home,
-  Moon,
-  Package,
   Settings,
-  Sun,
+  ShieldAlert,
   TrendingUp,
   Users,
   X,
@@ -20,7 +14,6 @@ import HypeLogo from "./components/HypeLogo";
 import { api } from "./api";
 import { useAuth } from "./hooks/useAuth";
 import { useLocale } from "./context/LocaleContext";
-import { useTheme } from "./context/ThemeContext";
 import HeaderBar from "./components/HeaderBar";
 import OnboardingTour from "./components/OnboardingTour";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
@@ -28,24 +21,20 @@ import { useWebSocket } from "./hooks/useWebSocket";
 import HomeView from "./views/HomeView";
 import NotificationsView from "./views/NotificationsView";
 import MesView from "./views/MesView";
-import ProductView from "./views/ProductView";
 import ReportsView from "./views/ReportsView";
 import SettingsView from "./views/SettingsView";
 import AdminUsersView from "./views/AdminUsersView";
 import PageTransition from "./components/PageTransition";
 import { DashboardSkeleton } from "./components/Skeleton";
-import Breadcrumb from "./components/Breadcrumb";
-import CommandPalette from "./components/CommandPalette";
 import NotificationToast from "./components/notifications/NotificationToast";
 import NotificationDetailModal from "./components/notifications/NotificationDetailModal";
 
-const ICONS = { ana: Home, bildirimler: Bell, mes: TrendingUp, urun: Package, raporlar: FileBarChart, uyelik: Users, ayarlar: Settings };
+const ICONS = { ana: Home, bildirimler: ShieldAlert, mes: TrendingUp, raporlar: FileBarChart, uyelik: Users, ayarlar: Settings };
 
 const VIEW_MAP = {
   ana: HomeView,
   bildirimler: NotificationsView,
   mes: MesView,
-  urun: ProductView,
   raporlar: ReportsView,
   uyelik: AdminUsersView,
 };
@@ -54,7 +43,6 @@ const MENU_LABELS = {
   ana: "anaSayfa",
   bildirimler: "bildirimler",
   mes: "personel",
-  urun: "urun",
   raporlar: "raporlar",
   uyelik: "uyelik",
   ayarlar: "ayarlar",
@@ -86,7 +74,6 @@ function normalizeNotification(item) {
 export default function Dashboard() {
   const { user, isImpersonating, exitImpersonation, setUser } = useAuth();
   const { t, locale } = useLocale();
-  const { theme, toggle: toggleTheme } = useTheme();
   const [activeMenu, setActiveMenu] = useState(() => menuFromPath(window.location.pathname));
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
@@ -95,15 +82,12 @@ export default function Dashboard() {
   const [compare, setCompare] = useState("");
   const [live, setLive] = useState(null);
   const [showTour, setShowTour] = useState(false);
-  const [cmdOpen, setCmdOpen] = useState(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem("hv-sidebar-collapsed") === "1");
   const [toastNotif, setToastNotif] = useState(null);
   const [popupNotif, setPopupNotif] = useState(null);
-  const [mapFocus, setMapFocus] = useState(null);
   const searchRef = useRef(null);
   const prevUserIdRef = useRef(null);
 
-  const moduller = user?.moduller || ["ana", "bildirimler", "mes", "urun", "raporlar", "ayarlar"];
+  const moduller = (user?.moduller || ["ana", "bildirimler", "mes", "raporlar", "ayarlar"]).filter((id) => id !== "urun");
   const isAdmin = user?.rol === "admin" && !isImpersonating;
 
   const menu = moduller
@@ -180,14 +164,6 @@ export default function Dashboard() {
     api.markNotificationRead(normalized.id).catch(() => {});
   }, []);
 
-  const showNotificationOnMap = useCallback((item) => {
-    if (!data?.floor_plan) return;
-    const point = findPointForNotification(item, data.floor_plan);
-    if (!point) return;
-    navigate("ana");
-    setMapFocus({ pointId: point.id, siteId: point.site_id });
-  }, [data?.floor_plan, navigate]);
-
   const handleNotificationUpdated = useCallback((updated) => {
     if (!updated?.id) return;
     setData((d) => {
@@ -252,16 +228,8 @@ export default function Dashboard() {
 
   useKeyboardShortcuts({
     onSearch: () => searchRef.current?.focus(),
-    onEscape: () => {
-      setSidebarOpen(false);
-      setCmdOpen(false);
-    },
-    onCommandPalette: () => setCmdOpen(true),
+    onEscape: () => setSidebarOpen(false),
   });
-
-  useEffect(() => {
-    localStorage.setItem("hv-sidebar-collapsed", sidebarCollapsed ? "1" : "0");
-  }, [sidebarCollapsed]);
 
   const breadcrumbItems = useMemo(() => {
     const labelMap = {
@@ -270,7 +238,6 @@ export default function Dashboard() {
       uyelik: t.uyelik,
       bildirimler: t.bildirimler,
       mes: t.personel,
-      urun: t.urun,
       raporlar: t.raporlar,
     };
     const items = [{ id: "ana", label: t.anaSayfa, onClick: () => navigate("ana") }];
@@ -324,18 +291,17 @@ export default function Dashboard() {
   return (
     <div className="flex min-h-screen bg-[var(--bg-page)] text-[var(--text-primary)]">
       <OnboardingTour open={showTour} onComplete={finishTour} />
-      <CommandPalette open={cmdOpen} onClose={() => setCmdOpen(false)} menu={menu} onNavigate={navigate} />
 
       {sidebarOpen && (
         <button type="button" className="fixed inset-0 z-40 bg-black/50 lg:hidden" onClick={() => setSidebarOpen(false)} aria-label={t.kapat} />
       )}
 
       <aside
-        className={`sidebar-shell fixed inset-y-0 left-0 z-50 flex flex-col border-r border-[var(--border)] bg-[var(--bg-sidebar)] transition-all duration-300 lg:translate-x-0 ${
+        className={`sidebar-shell fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r border-[var(--border)] bg-[var(--bg-sidebar)] transition-transform duration-300 lg:translate-x-0 ${
           sidebarOpen ? "translate-x-0" : "-translate-x-full"
-        } ${sidebarCollapsed ? "sidebar-collapsed w-[4.5rem]" : "w-64"}`}
+        }`}
       >
-        <div className={`sidebar-brand relative w-full border-b border-[var(--border)] ${sidebarCollapsed ? "px-2 py-4" : "px-5 py-5"}`}>
+        <div className="sidebar-brand relative w-full border-b border-[var(--border)] px-5 py-5">
           <button
             type="button"
             className="absolute right-3 top-4 rounded-lg p-1 text-[var(--text-muted)] hover:bg-[var(--bg-hover)] lg:hidden"
@@ -343,8 +309,8 @@ export default function Dashboard() {
           >
             <X className="h-5 w-5" />
           </button>
-          <HypeLogo centered className={sidebarCollapsed ? "h-7 w-7" : "h-8 w-auto max-w-[152px]"} />
-          {!sidebarCollapsed && <p className="sidebar-tagline w-full text-center">{t.sidebarTagline}</p>}
+          <HypeLogo centered className="h-8 w-auto max-w-[152px]" />
+          <p className="sidebar-tagline w-full text-center" lang="en">{t.sidebarTagline}</p>
         </div>
         <nav className="flex-1 space-y-1 overflow-y-auto overflow-x-hidden px-2 py-4 lg:px-3">
           {menu.map(({ id, label, icon: Icon }) => {
@@ -355,10 +321,7 @@ export default function Dashboard() {
               type="button"
               onClick={() => navigate(id)}
               data-label={label}
-              title={sidebarCollapsed ? label : undefined}
-              className={`nav-item flex w-full items-center rounded-xl border text-sm font-medium transition ${
-                sidebarCollapsed ? "justify-center px-2 py-2.5" : "gap-3 px-3 py-2.5"
-              } ${
+              className={`nav-item flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-sm font-medium transition ${
                 activeMenu === id ? "nav-active" : "text-[var(--text-muted)] border-transparent hover:bg-[var(--bg-hover)]"
               }`}
             >
@@ -368,7 +331,7 @@ export default function Dashboard() {
                   <span className="sidebar-badge">{unreadBadge > 9 ? "9+" : unreadBadge}</span>
                 )}
               </span>
-              {!sidebarCollapsed && label}
+              {label}
             </button>
           );})}
           {moduller.includes("ayarlar") && (
@@ -376,64 +339,34 @@ export default function Dashboard() {
               type="button"
               onClick={() => navigate("ayarlar")}
               data-label={t.ayarlar}
-              title={sidebarCollapsed ? t.ayarlar : undefined}
-              className={`nav-item mt-3 flex w-full items-center rounded-xl border text-sm font-medium ${
-                sidebarCollapsed ? "justify-center px-2 py-2.5" : "gap-3 px-3 py-2.5"
-              } ${
+              className={`nav-item mt-3 flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-sm font-medium ${
                 activeMenu === "ayarlar" ? "nav-active" : "text-[var(--text-muted)] border-transparent hover:bg-[var(--bg-hover)]"
               }`}
             >
               <Settings className="h-4 w-4" />
-              {!sidebarCollapsed && t.ayarlar}
+              {t.ayarlar}
             </button>
           )}
         </nav>
-        <div className="border-t border-[var(--border)] p-2">
-          {!sidebarCollapsed && (
-            <div className="sidebar-footer-meta mb-2 space-y-2 px-2">
-              <div className="flex items-center justify-between text-[11px] text-[var(--text-muted)]">
-                <span>{t.vocSysHealth}</span>
-                <span className={
-                  (data?.system_health?.overall || live?.system_health?.overall) === "ok"
-                    ? "text-emerald-500"
-                    : (data?.system_health?.overall || live?.system_health?.overall) === "fail"
-                      ? "text-red-500"
-                      : "text-amber-500"
-                }>
-                  {locale === "EN"
-                    ? (data?.system_health?.overallEn || live?.system_health?.overallEn || t.vocSysHealthOk)
-                    : (data?.system_health?.overallTr || live?.system_health?.overallTr || t.vocSysHealthOk)}
-                </span>
-              </div>
-              <button
-                type="button"
-                onClick={toggleTheme}
-                className="flex w-full items-center justify-between rounded-lg border border-[var(--border)] px-2.5 py-2 text-xs text-[var(--text-muted)] hover:bg-[var(--bg-hover)]"
-              >
-                <span>{t.vocDarkMode}</span>
-                {theme === "dark" ? <Moon className="h-3.5 w-3.5" /> : <Sun className="h-3.5 w-3.5" />}
-              </button>
-              <p className="text-center text-[10px] text-[var(--text-muted)]">v2.4.1</p>
-            </div>
-          )}
-          <button
-            type="button"
-            onClick={() => setSidebarCollapsed((c) => !c)}
-            className="hidden w-full items-center justify-center gap-2 rounded-xl border border-[var(--border)] py-2 text-[var(--text-muted)] hover:bg-[var(--bg-hover)] lg:flex"
-            title={sidebarCollapsed ? t.sidebarGenislet : t.sidebarDaralt}
-          >
-            {sidebarCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
-            {!sidebarCollapsed && <span className="text-xs">{t.sidebarDaralt}</span>}
-          </button>
-        </div>
-        {user?.kurulum && !sidebarCollapsed && (
-          <div className="border-t border-[var(--border)] px-5 py-3">
-            <p className="truncate text-center text-[11px] text-[var(--text-muted)]">{user.kurulum}</p>
+        <div className="border-t border-[var(--border)] p-3">
+          <div className="flex items-center justify-between rounded-lg border border-[var(--border)] px-3 py-2 text-[11px] text-[var(--text-muted)]">
+            <span>{t.vocSysHealth}</span>
+            <span className={
+              (data?.system_health?.overall || live?.system_health?.overall) === "ok"
+                ? "text-emerald-500 font-semibold"
+                : (data?.system_health?.overall || live?.system_health?.overall) === "fail"
+                  ? "text-red-500 font-semibold"
+                  : "text-amber-500 font-semibold"
+            }>
+              {locale === "EN"
+                ? (data?.system_health?.overallEn || live?.system_health?.overallEn || t.vocSysHealthOk)
+                : (data?.system_health?.overallTr || live?.system_health?.overallTr || t.vocSysHealthOk)}
+            </span>
           </div>
-        )}
+        </div>
       </aside>
 
-      <div className={`flex min-w-0 flex-1 flex-col transition-all duration-300 ${sidebarCollapsed ? "lg:ml-[4.5rem]" : "lg:ml-64"}`}>
+      <div className="flex min-w-0 flex-1 flex-col lg:ml-64">
         {isImpersonating && (
           <div className="flex items-center justify-between bg-amber-500/15 border-b border-amber-500/30 px-4 py-2 text-sm text-amber-700 dark:text-amber-300">
             <span>{t.impersonating}: {user?.ad}</span>
@@ -447,7 +380,6 @@ export default function Dashboard() {
           breadcrumb={breadcrumbItems}
           onMenuClick={() => setSidebarOpen(true)}
           onNavigate={navigate}
-          onOpenCommand={() => setCmdOpen(true)}
           onNotificationSelect={handleNotificationOpen}
           unread={data?.summary?.bildirim_sayisi ?? 0}
           liveSummary={live}
@@ -471,13 +403,10 @@ export default function Dashboard() {
                   data={data}
                   compare={compare}
                   onCompareChange={setCompare}
-                  onNotificationOpen={handleNotificationOpen}
-                  mapFocus={mapFocus}
-                  onMapFocusClear={() => setMapFocus(null)}
                 />
               )}
               {activeMenu === "bildirimler" && (
-                <NotificationsView data={data} onNotificationUpdated={handleNotificationUpdated} />
+                <NotificationsView data={data} onNotificationUpdated={handleNotificationUpdated} onRefresh={loadData} />
               )}
               {View && activeMenu !== "ayarlar" && activeMenu !== "ana" && activeMenu !== "bildirimler" && (
                 <View data={data} onRefresh={loadData} />
@@ -494,7 +423,6 @@ export default function Dashboard() {
           setToastNotif(null);
           handleNotificationOpen(item);
         }}
-        onShowOnMap={showNotificationOnMap}
       />
       {popupNotif && (
         <NotificationDetailModal
@@ -502,8 +430,6 @@ export default function Dashboard() {
           subtitle={user?.kurulum}
           onClose={() => setPopupNotif(null)}
           onUpdated={handleNotificationUpdated}
-          onShowOnMap={showNotificationOnMap}
-          canShowOnMap={!!findPointForNotification(popupNotif, data?.floor_plan)}
         />
       )}
     </div>

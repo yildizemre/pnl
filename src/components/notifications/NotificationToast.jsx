@@ -1,11 +1,11 @@
 import { useEffect } from "react";
-import { Bell, MapPin, X } from "lucide-react";
+import { Bell, X } from "lucide-react";
 import { mediaUrl } from "../../api";
 import { useLocale } from "../../context/LocaleContext";
 import { translateSeviye } from "../../i18n/helpers";
 import { eventColor, eventLabel } from "../../data/notificationTypes";
 
-export default function NotificationToast({ item, onClose, onOpen, onShowOnMap }) {
+export default function NotificationToast({ item, onClose, onOpen }) {
   const { t, locale } = useLocale();
 
   useEffect(() => {
@@ -50,12 +50,6 @@ export default function NotificationToast({ item, onClose, onOpen, onShowOnMap }
         >
           <X className="h-4 w-4" />
         </button>
-        {onShowOnMap && item.kamera && (
-          <button type="button" className="notif-toast-map btn-secondary" onClick={() => { onShowOnMap(item); onClose(); }}>
-            <MapPin className="h-3.5 w-3.5" />
-            {t.kamerayiGoster}
-          </button>
-        )}
       </div>
     </div>
   );

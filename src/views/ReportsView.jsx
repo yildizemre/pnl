@@ -3,14 +3,17 @@ import {
   Activity,
   AlertTriangle,
   BarChart3,
+  Bell,
   Download,
   FileSpreadsheet,
   Mail,
-  Package,
+  ShieldAlert,
   TrendingUp,
   Users,
 } from "lucide-react";
 import {
+  Area,
+  AreaChart,
   Bar,
   BarChart,
   CartesianGrid,
@@ -43,7 +46,9 @@ export default function ReportsView({ data }) {
   const [emailMsg, setEmailMsg] = useState(null);
   const [exporting, setExporting] = useState(null);
 
-  const numFmt = (n) => Number(n).toLocaleString(localeTag(locale));
+  const numFmt = (n) => Number(n ?? 0).toLocaleString(localeTag(locale));
+  const mes = data.productivity || {};
+  const personeller = mes.personeller || [];
 
   useEffect(() => {
     if (!date) return;
@@ -67,9 +72,27 @@ export default function ReportsView({ data }) {
     })),
     [report?.kategori_dagilim, locale]
   );
-  const urunHat = useMemo(
-    () => [...(report?.urun?.hatlar || [])].sort((a, b) => b.adet - a.adet),
-    [report?.urun?.hatlar]
+
+  const presenceByHat = useMemo(() => {
+    const map = {};
+    personeller.forEach((p) => {
+      if (!map[p.hat]) map[p.hat] = { hat: p.hat, total: 0, count: 0, yok: 0 };
+      map[p.hat].total += p.presence_pct || 0;
+      map[p.hat].yok += Number(p.yok_saat) || 0;
+      map[p.hat].count += 1;
+    });
+    return Object.values(map)
+      .map((h) => ({
+        hat: h.hat,
+        yerinde: Math.round((h.total / h.count) * 10) / 10,
+        yok: Math.round(h.yok * 10) / 10,
+      }))
+      .sort((a, b) => a.yerinde - b.yerinde);
+  }, [personeller]);
+
+  const topRisk = useMemo(
+    () => [...personeller].sort((a, b) => (a.presence_pct || 100) - (b.presence_pct || 100)).slice(0, 5),
+    [personeller]
   );
 
   const sendDaily = async () => {
@@ -99,6 +122,11 @@ export default function ReportsView({ data }) {
     }
   };
 
+  const avgPresence = mes.ortalama_yerinde
+    ?? (personeller.length
+      ? Math.round(personeller.reduce((a, p) => a + (p.presence_pct || 0), 0) / personeller.length * 10) / 10
+      : null);
+
   return (
     <div className="module-page reports-page">
       <FilterBar
@@ -125,72 +153,28 @@ export default function ReportsView({ data }) {
         }
       />
 
-      {emailMsg && (
-        <p className="module-toast">{emailMsg}</p>
-      )}
+      {emailMsg && <p className="module-toast">{emailMsg}</p>}
 
       {loading ? (
-        <Panel>
-          <p className="text-sm text-[var(--text-muted)]">{t.kpiYukleniyor}</p>
-        </Panel>
+        <Panel><p className="text-sm text-[var(--text-muted)]">{t.kpiYukleniyor}</p></Panel>
       ) : !kpi ? (
-        <Panel>
-          <EmptyChart title={t.raporEmptyTitle} subtitle={t.raporEmptySub} />
-        </Panel>
+        <Panel><EmptyChart title={t.raporEmptyTitle} subtitle={t.raporEmptySub} /></Panel>
       ) : (
         <>
           <section className="module-kpi-row" aria-label={t.kpiOzet}>
-            <StatCard
-              title={t.urunSayimi}
-              value={numFmt(kpi.urun_toplam)}
-              subtitle={report.kurulum || t.seciliGun}
-              icon={Package}
-              accent="blue"
-            />
-            <StatCard
-              title={t.ortVerimlilikMes}
-              value={`%${kpi.verimlilik}`}
-              subtitle={t.mesPersonel}
-              icon={TrendingUp}
-              accent="green"
-            />
-            <StatCard
-              title={t.isgIhlali}
-              value={kpi.isg_ihlal}
-              subtitle={t.seciliTarih}
-              icon={AlertTriangle}
-              accent="orange"
-            />
-            <StatCard
-              title={t.bildirim}
-              value={kpi.bildirim_sayisi}
-              subtitle={`${kpi.log_sayisi} ${t.logKaydi}`}
-              icon={Activity}
-              accent="purple"
-            />
+            <StatCard title={t.ortVerimli} value={avgPresence != null ? `%${avgPresence}` : "—"} subtitle={t.ortVerimliAlt} icon={TrendingUp} accent="green" />
+            <StatCard title={t.isgIhlali} value={kpi.isg_ihlal} subtitle={t.seciliTarih} icon={ShieldAlert} accent="orange" />
+            <StatCard title={t.bildirim} value={kpi.bildirim_sayisi} subtitle={`${kpi.log_sayisi} ${t.logKaydi}`} icon={Bell} accent="purple" />
+            <StatCard title={t.aktifPersonel} value={personeller.length || kpi.personel_aktif || 0} subtitle={data.summary?.kameralar ? `${data.summary.kameralar.aktif}/${data.summary.kameralar.toplam} ${t.kpiAktifKamera}` : ""} icon={Users} accent="blue" />
           </section>
 
-          <Panel title={t.raporOzetBaslik} subtitle={t.raporOzetAlt} className="reports-summary-panel">
+          <Panel title={t.raporOzetBaslik} subtitle={t.raporMusteriAlt} className="reports-summary-panel">
             <div className="reports-summary-grid">
               <div className="reports-summary-item">
-                <Users className="h-4 w-4 text-sky-500" />
+                <Activity className="h-4 w-4 text-emerald-500" />
                 <div>
-                  <p className="reports-summary-lbl">{t.aktifPersonel}</p>
-                  <p className="reports-summary-val">{kpi.personel_aktif}</p>
-                </div>
-              </div>
-              <div className="reports-summary-item">
-                <BarChart3 className="h-4 w-4 text-emerald-500" />
-                <div>
-                  <p className="reports-summary-lbl">{t.kpiAktifKamera}</p>
-                  <p className="reports-summary-val">{data.summary.kameralar.aktif}/{data.summary.kameralar.toplam}</p>
-                </div>
-              </div>
-              <div className="reports-summary-item">
-                <Package className="h-4 w-4 text-violet-500" />
-                <div>
-                  <p className="reports-summary-lbl">{t.hatBazliUretim}</p>
-                  <p className="reports-summary-val">{urunHat.length} {t.hat}</p>
+                  <p className="reports-summary-lbl">{t.ortVerimli}</p>
+                  <p className="reports-summary-val">{avgPresence != null ? `%${avgPresence}` : "—"}</p>
                 </div>
               </div>
               <div className="reports-summary-item">
@@ -200,22 +184,42 @@ export default function ReportsView({ data }) {
                   <p className="reports-summary-val">{kpi.isg_ihlal} / {kpi.bildirim_sayisi}</p>
                 </div>
               </div>
+              <div className="reports-summary-item">
+                <BarChart3 className="h-4 w-4 text-sky-500" />
+                <div>
+                  <p className="reports-summary-lbl">{t.kpiAktifKamera}</p>
+                  <p className="reports-summary-val">{data.summary?.kameralar?.aktif}/{data.summary?.kameralar?.toplam}</p>
+                </div>
+              </div>
+              <div className="reports-summary-item">
+                <Users className="h-4 w-4 text-violet-500" />
+                <div>
+                  <p className="reports-summary-lbl">{t.mesDikkatGereken}</p>
+                  <p className="reports-summary-val">{personeller.filter((p) => (p.presence_pct || 100) < 85).length}</p>
+                </div>
+              </div>
             </div>
           </Panel>
 
           <section className="module-charts-row">
-            <Panel title={t.trend30Gun} subtitle={t.trendDbAlt} className="reports-trend-panel">
+            <Panel title={t.trend30Gun} subtitle={t.trendBildirimVerim} className="reports-trend-panel">
               {trend.length ? (
                 <ResponsiveContainer width="100%" height={280}>
-                  <LineChart data={trend}>
+                  <AreaChart data={trend}>
+                    <defs>
+                      <linearGradient id="repNotifGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor={CHART.violet} stopOpacity={0.35} />
+                        <stop offset="100%" stopColor={CHART.violet} stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
                     <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} vertical={false} />
                     <XAxis dataKey="gun" tick={axisTick} axisLine={false} tickLine={false} interval="preserveStartEnd" />
                     <YAxis yAxisId="left" tick={axisTick} axisLine={false} tickLine={false} />
-                    <YAxis yAxisId="right" orientation="right" domain={[80, 100]} tick={axisTick} axisLine={false} tickLine={false} />
+                    <YAxis yAxisId="right" orientation="right" domain={[70, 100]} tick={axisTick} axisLine={false} tickLine={false} />
                     <Tooltip contentStyle={chartTooltipStyle()} />
-                    <Line yAxisId="left" type="monotone" dataKey="urun_toplam" name={t.chartUrun} stroke={CHART.sky} strokeWidth={2} dot={false} />
+                    <Area yAxisId="left" type="monotone" dataKey="bildirim_sayisi" name={t.bildirim} stroke={CHART.violet} fill="url(#repNotifGrad)" strokeWidth={2} />
                     <Line yAxisId="right" type="monotone" dataKey="verimlilik" name={t.verimlilik} stroke={CHART.emerald} strokeWidth={2} dot={false} />
-                  </LineChart>
+                  </AreaChart>
                 </ResponsiveContainer>
               ) : (
                 <EmptyChart />
@@ -243,40 +247,48 @@ export default function ReportsView({ data }) {
             </Panel>
           </section>
 
-          {urunHat.length > 0 && (
-            <Panel title={t.hatBazliUretim} subtitle={date} flush>
-              <DataTable minWidth="480px">
+          <section className="module-charts-row">
+            <Panel title={t.raporHatPresence} subtitle={t.raporHatPresenceAlt}>
+              {presenceByHat.length ? (
+                <ResponsiveContainer width="100%" height={260}>
+                  <BarChart data={presenceByHat} layout="vertical" margin={{ left: 8, right: 16 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} horizontal={false} />
+                    <XAxis type="number" domain={[60, 100]} tick={axisTick} axisLine={false} tickLine={false} />
+                    <YAxis type="category" dataKey="hat" width={110} tick={axisTick} axisLine={false} tickLine={false} />
+                    <Tooltip contentStyle={chartTooltipStyle()} formatter={(v) => [`%${v}`, t.ortVerimli]} />
+                    <Bar dataKey="yerinde" fill={CHART.emerald} radius={[0, 6, 6, 0]} barSize={14} />
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <EmptyChart title={t.mesEmptyTitle} />
+              )}
+            </Panel>
+
+            <Panel title={t.raporRiskPersonel} subtitle={t.raporRiskPersonelAlt} flush>
+              <DataTable minWidth="420px">
                 <thead>
                   <tr>
-                    <th>{t.sira}</th>
-                    <th>{t.hat}</th>
-                    <th className="text-right">{t.adet}</th>
-                    <th>{t.pay}</th>
+                    <th>{t.adSoyad}</th>
+                    <th>{t.istasyon}</th>
+                    <th>{t.yerindeOran}</th>
+                    <th>{t.yokSure}</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {urunHat.map((h, i) => {
-                    const pay = kpi.urun_toplam ? Math.round((h.adet / kpi.urun_toplam) * 100) : 0;
-                    return (
-                      <tr key={h.hat}>
-                        <td className="font-mono text-xs text-[var(--text-muted)]">#{i + 1}</td>
-                        <td className="font-medium">{h.hat}</td>
-                        <td className="text-right font-semibold text-sky-500">{numFmt(h.adet)}</td>
-                        <td>
-                          <div className="flex items-center gap-2">
-                            <div className="progress-track h-2 flex-1 max-w-[120px]">
-                              <div className="h-full rounded-full bg-sky-500" style={{ width: `${pay}%` }} />
-                            </div>
-                            <span className="text-xs text-[var(--text-muted)]">%{pay}</span>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
+                  {topRisk.length === 0 ? (
+                    <tr className="empty-row"><td colSpan={4}>{t.personelBulunamadi}</td></tr>
+                  ) : topRisk.map((p) => (
+                    <tr key={p.id} className={(p.presence_pct || 100) < 85 ? "mes-row--warn" : ""}>
+                      <td className="font-medium">{p.ad}</td>
+                      <td className="text-[var(--text-muted)]">{p.masa}</td>
+                      <td className="font-semibold">%{p.presence_pct}</td>
+                      <td className="text-amber-500">{p.yok_saat}s</td>
+                    </tr>
+                  ))}
                 </tbody>
               </DataTable>
             </Panel>
-          )}
+          </section>
         </>
       )}
     </div>

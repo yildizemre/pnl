@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Bell, Bot, Flame, GraduationCap, List } from "lucide-react";
+import {
+  AlertTriangle, Bell, Bot, CheckCircle2, Flame, GraduationCap, List,
+} from "lucide-react";
 import { useLocale } from "../context/LocaleContext";
 import { translateSeviye } from "../i18n/helpers";
 import FilterBar from "../components/FilterBar";
 import { Panel, StatCard } from "../components/ui";
+import NotificationCard from "../components/notifications/NotificationCard";
 import NotificationTable from "../components/notifications/NotificationTable";
 import NotificationDetailModal from "../components/notifications/NotificationDetailModal";
 import NotificationInsightsView from "../components/notifications/NotificationInsightsView";
@@ -18,7 +21,13 @@ const TABS = [
   { id: "egitim", icon: GraduationCap, labelKey: "notifTabEgitim" },
 ];
 
-export default function NotificationsView({ data, onNotificationUpdated }) {
+const STATUS_FILTERS = [
+  { id: "kritik", icon: AlertTriangle, labelKey: "isgDurumKritik", accent: "red" },
+  { id: "bekleyen", icon: Bell, labelKey: "isgDurumBekleyen", accent: "orange" },
+  { id: "kapandi", icon: CheckCircle2, labelKey: "isgDurumKapandi", accent: "green" },
+];
+
+export default function NotificationsView({ data, onNotificationUpdated, onRefresh }) {
   const { t, locale } = useLocale();
   const dates = data.dates || [];
   const [tab, setTab] = useState("liste");
@@ -26,7 +35,9 @@ export default function NotificationsView({ data, onNotificationUpdated }) {
   const [search, setSearch] = useState("");
   const [eventFilter, setEventFilter] = useState("tumu");
   const [seviyeFilter, setSeviyeFilter] = useState("tumu");
+  const [statusFilter, setStatusFilter] = useState("");
   const [selected, setSelected] = useState(null);
+  const [viewMode, setViewMode] = useState("kart");
 
   const list = data.notifications || [];
 
@@ -34,22 +45,38 @@ export default function NotificationsView({ data, onNotificationUpdated }) {
     if (dates[0]) setDate(dates[0]);
   }, [dates[0]]);
 
+  const dayList = useMemo(
+    () => (date ? list.filter((n) => n.tarih === date) : list),
+    [list, date]
+  );
+
+  const statusCounts = useMemo(() => ({
+    kritik: dayList.filter((n) => n.seviye === "kritik" && !n.okundu).length,
+    bekleyen: dayList.filter((n) => !n.okundu).length,
+    kapandi: dayList.filter((n) => n.okundu).length,
+  }), [dayList]);
+
   const filtered = useMemo(() => {
     return list.filter((n) => {
       if (date && n.tarih !== date) return false;
       if (eventFilter !== "tumu" && n.kategori !== eventFilter) return false;
       if (seviyeFilter !== "tumu" && n.seviye !== seviyeFilter) return false;
+      if (statusFilter === "kritik" && !(n.seviye === "kritik" && !n.okundu)) return false;
+      if (statusFilter === "bekleyen" && n.okundu) return false;
+      if (statusFilter === "kapandi" && !n.okundu) return false;
       const q = search.toLowerCase();
       if (!q) return true;
-      return [n.baslik, n.detay, n.kamera, n.kategori, n.modul].some((x) =>
-        String(x).toLowerCase().includes(q)
+      return [n.baslik, n.detay, n.kamera, n.kategori, n.modul, n.alan].some((x) =>
+        String(x || "").toLowerCase().includes(q)
       );
     });
-  }, [list, date, search, eventFilter, seviyeFilter]);
+  }, [list, date, search, eventFilter, seviyeFilter, statusFilter]);
 
   const typeCounts = useMemo(() => countByEventType(filtered), [filtered]);
   const kritik = kritikCount(filtered);
   const unread = filtered.filter((n) => !n.okundu).length;
+
+  const toggleStatus = (id) => setStatusFilter((cur) => (cur === id ? "" : id));
 
   return (
     <div className="notif-page">
@@ -75,6 +102,23 @@ export default function NotificationsView({ data, onNotificationUpdated }) {
         <TrainingFeedbackView />
       ) : (
         <>
+          <div className="isg-status-row" role="group" aria-label={t.isgDurumFiltre}>
+            {STATUS_FILTERS.map(({ id, icon: Icon, labelKey, accent }) => (
+              <button
+                key={id}
+                type="button"
+                className={`isg-status-card isg-status-card--${accent} ${statusFilter === id ? "isg-status-card--active" : ""}`}
+                onClick={() => toggleStatus(id)}
+              >
+                <Icon className="h-4 w-4" />
+                <div>
+                  <span className="isg-status-val">{statusCounts[id]}</span>
+                  <span className="isg-status-lbl">{t[labelKey]}</span>
+                </div>
+              </button>
+            ))}
+          </div>
+
           <FilterBar
             search={search}
             onSearchChange={setSearch}
@@ -124,27 +168,59 @@ export default function NotificationsView({ data, onNotificationUpdated }) {
             </div>
           </Panel>
 
-          <div className="notif-sev-filters">
-            {["tumu", ...SEVIYELER].map((s) => (
+          <div className="notif-list-toolbar">
+            <div className="notif-sev-filters">
+              {["tumu", ...SEVIYELER].map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  className={seviyeFilter === s ? "notif-sev-pill notif-sev-pill--active" : "notif-sev-pill"}
+                  onClick={() => setSeviyeFilter(s)}
+                >
+                  {s === "tumu" ? t.tumSeviyeler : translateSeviye(locale, s)}
+                </button>
+              ))}
+            </div>
+            <div className="notif-view-toggle">
               <button
-                key={s}
                 type="button"
-                className={seviyeFilter === s ? "notif-sev-pill notif-sev-pill--active" : "notif-sev-pill"}
-                onClick={() => setSeviyeFilter(s)}
+                className={viewMode === "kart" ? "notif-sev-pill notif-sev-pill--active" : "notif-sev-pill"}
+                onClick={() => setViewMode("kart")}
               >
-                {s === "tumu" ? t.tumSeviyeler : translateSeviye(locale, s)}
+                {t.isgKartGorunum}
               </button>
-            ))}
+              <button
+                type="button"
+                className={viewMode === "tablo" ? "notif-sev-pill notif-sev-pill--active" : "notif-sev-pill"}
+                onClick={() => setViewMode("tablo")}
+              >
+                {t.isgTabloGorunum}
+              </button>
+            </div>
           </div>
 
-          <Panel
-            title={t.bildirimTablosu}
-            subtitle={`${filtered.length} ${t.kayit} · ${t.gorselOnizleme}`}
-            className="notif-table-panel"
-            flush
-          >
-            <NotificationTable items={filtered} onSelect={setSelected} onUpdated={onNotificationUpdated} />
-          </Panel>
+          {viewMode === "kart" ? (
+            <Panel title={t.isgOlayKartlari} subtitle={`${filtered.length} ${t.kayit}`}>
+              {filtered.length ? (
+                <div className="notif-card-grid">
+                  {filtered.map((item) => (
+                    <NotificationCard key={item.id} item={item} onClick={setSelected} />
+                  ))}
+                </div>
+              ) : (
+                <p className="py-8 text-center text-sm text-[var(--text-muted)]">{t.bildirimBulunamadi}</p>
+              )}
+            </Panel>
+          ) : (
+            <Panel
+              title={t.bildirimTablosu}
+              subtitle={`${filtered.length} ${t.kayit} · ${t.gorselOnizleme}`}
+              className="notif-table-panel"
+              flush
+            >
+              <NotificationTable items={filtered} onSelect={setSelected} onUpdated={onNotificationUpdated} />
+            </Panel>
+          )}
 
           {selected && (
             <NotificationDetailModal

@@ -1,45 +1,41 @@
-import {
-  Camera, ChevronDown, ChevronUp, Clock, LayoutDashboard, MessageSquare,
-  ShieldAlert,
-} from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Area, AreaChart, Bar, BarChart, CartesianGrid, Cell,
   ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
-import { useEffect, useMemo, useState } from "react";
+import { LayoutDashboard, MessageSquare, ChevronDown, ChevronUp } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
 import { useLocale } from "../context/LocaleContext";
-import { translateCategory, localeTag } from "../i18n/helpers";
+import { translateCategory } from "../i18n/helpers";
 import { api } from "../api";
 import { CHART, axisTick, chartTooltipStyle, gridStroke } from "../lib/chartTheme";
 import { computeRiskScore } from "../data/operationsCenter";
 import CompareToggle from "../components/CompareToggle";
 import CameraCapabilityList from "../components/CameraCapabilityList";
 import { EmptyChart } from "../components/EmptyState";
-import { ChartTooltipTraffic, Panel, StatCard } from "../components/ui";
-import FloorPlanCanvas from "../components/experience/FloorPlanCanvas";
-import OperationsTimeline from "../components/experience/OperationsTimeline";
+import { ChartTooltipTraffic, Panel } from "../components/ui";
 import AiAssistant from "../components/experience/AiAssistant";
 import { HomeInsightsPanel, HomeSystemPanel } from "../components/operations/VocPanels";
+import HomeKpiBoard from "../components/HomeKpiBoard";
 
 const VIEWS = [
   { id: "main", icon: LayoutDashboard, labelKey: "homeViewMain" },
-  { id: "timeline", icon: Clock, labelKey: "modeTimeline" },
   { id: "ai", icon: MessageSquare, labelKey: "modeAssistant" },
 ];
 
-function ChangeBadge({ pct }) {
+function ChangeBadge({ pct, invert = false }) {
   if (pct == null) return null;
+  const good = invert ? pct <= 0 : pct >= 0;
   const up = pct >= 0;
   return (
-    <span className={`inline-flex items-center gap-0.5 text-xs font-semibold ${up ? "text-emerald-500" : "text-red-500"}`}>
+    <span className={`inline-flex items-center gap-0.5 text-xs font-semibold ${good ? "text-emerald-500" : "text-red-500"}`}>
       {up ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
       {Math.abs(pct).toFixed(1)}%
     </span>
   );
 }
 
-export default function HomeView({ data, compare, onCompareChange, onNotificationOpen, mapFocus, onMapFocusClear }) {
+export default function HomeView({ data, compare, onCompareChange }) {
   const { t, locale } = useLocale();
   const { user } = useAuth();
   const [view, setView] = useState("main");
@@ -48,7 +44,6 @@ export default function HomeView({ data, compare, onCompareChange, onNotificatio
   const s = data.summary;
   const cmp = data.compare;
   const compareActive = !!compare;
-  const localeCode = localeTag(locale);
   const risk = useMemo(
     () => computeRiskScore(s, data.today_notifications || data.notifications),
     [s, data.today_notifications, data.notifications]
@@ -58,6 +53,11 @@ export default function HomeView({ data, compare, onCompareChange, onNotificatio
     ...x,
     kategori: translateCategory(locale, x.kategori),
   }));
+
+  const traffic = useMemo(() => {
+    if (compareActive && cmp?.traffic?.length) return cmp.traffic;
+    return data.traffic || [];
+  }, [compareActive, cmp, data.traffic]);
 
   useEffect(() => {
     const tarih = data.dates?.[0];
@@ -84,10 +84,12 @@ export default function HomeView({ data, compare, onCompareChange, onNotificatio
     ? (risk.level === "low" ? "Low risk" : risk.level === "mid" ? "Medium risk" : "High risk")
     : (risk.level === "low" ? "Düşük risk" : risk.level === "mid" ? "Orta risk" : "Yüksek risk");
 
+  const presenceAvg = data.productivity?.ortalama_yerinde;
+
   return (
     <div className="dash-home">
       <div className="dash-home-bar">
-        <CompareToggle value={compare} onChange={onCompareChange} />
+        <CompareToggle value={compare} onChange={onCompareChange} compare={cmp} />
         <div className="dash-view-pills" role="tablist">
           {VIEWS.map(({ id, icon: Icon, labelKey }) => (
             <button
@@ -107,68 +109,55 @@ export default function HomeView({ data, compare, onCompareChange, onNotificatio
 
       {view === "main" && (
         <>
-          <section className="dash-kpi-row" aria-label={t.kpiOzet}>
-            <StatCard
-              title={t.kpiAktifKamera}
-              value={<>{s.kameralar.aktif} <span className="text-lg font-normal text-[var(--text-muted)]">/ {s.kameralar.toplam}</span></>}
-              subtitle={compareActive && cmp?.kameralar?.degisim_pct != null ? <ChangeBadge pct={cmp.kameralar.degisim_pct} /> : s.kameralar.degisim}
-              icon={Camera}
-              accent="cyan"
-              sparkline={sparklines.kameralar}
-              compareActive={compareActive}
-            />
-            <StatCard
-              title={t.kpiIsgIhlal}
-              value={s.isg_ihlaller.bugun}
-              subtitle={`${t.vocRiskScore}: ${risk.score}/100 · ${riskLabel}`}
-              icon={ShieldAlert}
-              accent="red"
-              sparkline={sparklines.isg}
-              compareActive={compareActive}
-            />
-            <StatCard
-              title={t.kpiOrtVerimlilik}
-              value={s.hat_verimlilik.ortalama != null ? `%${s.hat_verimlilik.ortalama}` : "—"}
-              subtitle={s.hat_verimlilik.alt_metin}
-              icon={LayoutDashboard}
-              accent="green"
-              sparkline={sparklines.verim}
-              counter={s.hat_verimlilik.ortalama ?? undefined}
-              counterSuffix="%"
-              compareActive={compareActive}
-            />
-          </section>
-
-          <section className="dash-hero">
-            <FloorPlanCanvas
-              notifications={data.notifications}
-              todayNotifications={data.today_notifications}
-              today={data.today}
-              summary={s}
-              floorPlan={data.floor_plan}
-              onNotificationOpen={onNotificationOpen}
-              activeSiteId={mapFocus?.siteId}
-              highlightPointId={mapFocus?.pointId}
-              onHighlightClear={onMapFocusClear}
-            />
-          </section>
+          <HomeKpiBoard
+            summary={s}
+            compare={cmp}
+            compareActive={compareActive}
+            sparklines={sparklines}
+            risk={risk}
+            riskLabel={riskLabel}
+            unread={s.bildirim_sayisi ?? 0}
+            presenceAvg={presenceAvg}
+            ChangeBadge={ChangeBadge}
+          />
 
           <section className="dash-charts">
-            <Panel title={t.sistemAktivitesi} subtitle={t.son24Saat} badge={<span className="live-pill">{t.canli}</span>}>
-              {(data.traffic || []).length ? (
+            <Panel
+              title={t.sistemAktivitesi}
+              subtitle={compareActive ? t.compareTrafficSub : t.son24Saat}
+              badge={<span className="live-pill">{t.canli}</span>}
+            >
+              {traffic.length ? (
                 <ResponsiveContainer width="100%" height={200}>
-                  <AreaChart data={data.traffic}>
+                  <AreaChart data={traffic}>
                     <defs>
                       <linearGradient id="dashTrafficGrad" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="0%" stopColor={CHART.emerald} stopOpacity={0.35} />
                         <stop offset="100%" stopColor={CHART.emerald} stopOpacity={0} />
                       </linearGradient>
+                      {compareActive && (
+                        <linearGradient id="dashTrafficPrev" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor={CHART.sky} stopOpacity={0.2} />
+                          <stop offset="100%" stopColor={CHART.sky} stopOpacity={0} />
+                        </linearGradient>
+                      )}
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} vertical={false} />
                     <XAxis dataKey="saat" tick={axisTick} axisLine={false} tickLine={false} />
                     <YAxis tick={axisTick} axisLine={false} tickLine={false} />
                     <Tooltip content={<ChartTooltipTraffic />} />
-                    <Area type="monotone" dataKey="kisi" stroke={CHART.emerald} strokeWidth={2} fill="url(#dashTrafficGrad)" />
+                    {compareActive && (
+                      <Area
+                        type="monotone"
+                        dataKey="kisi_once"
+                        name={t.oncekiDonem}
+                        stroke={CHART.sky}
+                        strokeWidth={1.5}
+                        strokeDasharray="4 3"
+                        fill="url(#dashTrafficPrev)"
+                      />
+                    )}
+                    <Area type="monotone" dataKey="kisi" name={t.buDonem} stroke={CHART.emerald} strokeWidth={2} fill="url(#dashTrafficGrad)" />
                   </AreaChart>
                 </ResponsiveContainer>
               ) : (
@@ -198,19 +187,11 @@ export default function HomeView({ data, compare, onCompareChange, onNotificatio
           <section className="dash-footer">
             <HomeInsightsPanel data={data} />
             <Panel title={t.kameraOzellikler} subtitle={t.kameraKonum} className="dash-footer-cameras">
-              <CameraCapabilityList
-                trackedCameras={data.tracked_cameras}
-                floorPlan={data.floor_plan}
-                compact
-              />
+              <CameraCapabilityList trackedCameras={data.tracked_cameras} compact />
             </Panel>
             <HomeSystemPanel data={data} />
           </section>
         </>
-      )}
-
-      {view === "timeline" && (
-        <OperationsTimeline notifications={data.notifications} />
       )}
 
       {view === "ai" && (

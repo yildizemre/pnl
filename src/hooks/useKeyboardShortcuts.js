@@ -1,18 +1,12 @@
 import { useEffect } from "react";
 
-export function useKeyboardShortcuts({ onSearch, onEscape, onCommandPalette, enabled = true }) {
+export function useKeyboardShortcuts({ onSearch, onEscape, enabled = true }) {
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled) return undefined;
 
     const handler = (e) => {
       const tag = e.target?.tagName?.toLowerCase();
       const typing = tag === "input" || tag === "textarea" || tag === "select" || e.target?.isContentEditable;
-
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
-        e.preventDefault();
-        onCommandPalette?.();
-        return;
-      }
 
       if (e.key === "Escape") {
         onEscape?.();
@@ -27,5 +21,5 @@ export function useKeyboardShortcuts({ onSearch, onEscape, onCommandPalette, ena
 
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [onSearch, onEscape, onCommandPalette, enabled]);
+  }, [onSearch, onEscape, enabled]);
 }

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Bell, Command, LogOut, Menu, Moon, Sun } from "lucide-react";
+import { Bell, LogOut, Menu, Moon, Sun } from "lucide-react";
 import { api, mediaUrl } from "../api";
 import { useAuth } from "../hooks/useAuth";
 import { useLocale } from "../context/LocaleContext";
@@ -15,7 +15,6 @@ export default function HeaderBar({
   breadcrumb = [],
   onMenuClick,
   onNavigate,
-  onOpenCommand,
   onNotificationSelect,
   unread,
   liveSummary,
@@ -113,17 +112,6 @@ export default function HeaderBar({
           </div>
 
           <div className="flex max-w-[55%] shrink-0 flex-wrap items-center justify-end gap-1 sm:max-w-none sm:gap-2">
-            <button
-              type="button"
-              onClick={onOpenCommand}
-              className="hidden items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-2.5 py-1.5 text-[11px] text-[var(--text-muted)] hover:bg-[var(--bg-hover)] sm:flex"
-              title={t.komutPaleti}
-            >
-              <Command className="h-3.5 w-3.5" />
-              <span className="hidden md:inline">{t.komutPaleti}</span>
-              <kbd className="cmd-kbd ml-1">⌘K</kbd>
-            </button>
-
             <div className="hidden items-center gap-0.5 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-0.5 md:flex">
               {["TR", "EN"].map((l) => (
                 <button

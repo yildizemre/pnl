@@ -173,8 +173,8 @@ export function buildAiInsights(summary = {}, locale = "TR") {
   if (verim == null && camCount === 0) {
     return [
       en
-        ? "No activity yet. Add cameras on the floor plan and send events via API."
-        : "Henüz aktivite yok. Krokiye kamera ekleyin ve API ile olay gönderin.",
+        ? "No activity yet. Connect cameras via API and send events."
+        : "Henüz aktivite yok. Kameraları API ile bağlayın ve olay gönderin.",
     ];
   }
   const v = verim ?? 0;

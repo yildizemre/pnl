@@ -1,3 +1,5 @@
+import { humanizeApiError, humanizeNetworkError } from "./lib/apiErrors";
+
 const API_BASE = import.meta.env.VITE_API_URL || "";
 
 function getToken() {
@@ -24,26 +26,13 @@ async function fetchJson(path, options = {}) {
       signal: controller.signal,
     });
   } catch (err) {
-    if (err.name === "AbortError") {
-      throw new Error(
-        "API yanıt vermiyor — run.bat ile backend'i yeniden başlatın (http://127.0.0.1:8000)"
-      );
-    }
-    throw new Error("API'ye bağlanılamadı — run.bat çalışıyor mu kontrol edin");
+    throw new Error(humanizeNetworkError(err));
   } finally {
     clearTimeout(timer);
   }
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    const detail = err.detail;
-    const msg =
-      typeof detail === "string"
-        ? detail
-        : Array.isArray(detail)
-          ? detail.map((d) => d.msg || d.message || JSON.stringify(d)).join(", ")
-          : res.status === 404
-            ? "Not Found"
-            : `API hatası: ${res.status}`;
+    const msg = humanizeApiError(res.status, err.detail);
     const error = new Error(msg);
     error.status = res.status;
     throw error;
@@ -56,7 +45,10 @@ async function fetchBlob(path) {
   const res = await fetch(`${API_BASE}${path}`, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
-  if (!res.ok) throw new Error(`İndirme hatası: ${res.status}`);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(humanizeApiError(res.status, err.detail));
+  }
   return res.blob();
 }
 
@@ -95,14 +87,6 @@ export const api = {
   createApiKey: (userId, label) =>
     fetchJson(`/api/admin/users/${userId}/api-keys`, { method: "POST", body: JSON.stringify({ label }) }),
   deleteApiKey: (keyId) => fetchJson(`/api/admin/api-keys/${keyId}`, { method: "DELETE" }),
-  getAdminFloorPlan: (userId) => fetchJson(`/api/admin/users/${userId}/floor-plan`),
-  saveAdminFloorPlan: (userId, body) =>
-    fetchJson(`/api/admin/users/${userId}/floor-plan`, { method: "PUT", body: JSON.stringify(body) }),
-  uploadFloorBackground: async (userId, file) => {
-    const fd = new FormData();
-    fd.append("image", file);
-    return fetchJson(`/api/admin/users/${userId}/floor-plan/background`, { method: "POST", body: fd });
-  },
   productCounts: (tarih) => fetchJson(`/api/counts/products${tarih ? `?tarih=${tarih}` : ""}`),
   notificationInsights: (tarih) => fetchJson(`/api/notifications/insights${tarih ? `?tarih=${tarih}` : ""}`),
   changePassword: (mevcut_sifre, yeni_sifre) =>

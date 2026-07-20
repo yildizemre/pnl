@@ -7,7 +7,7 @@ import { eventColor, eventLabel } from "../../data/notificationTypes";
 import { formatMetaTime, metaRows } from "../../lib/notificationMeta";
 import NotificationFeedback from "./NotificationFeedback";
 
-export default function NotificationDetailModal({ item, subtitle, onClose, onUpdated, onShowOnMap, canShowOnMap }) {
+export default function NotificationDetailModal({ item, subtitle, onClose, onUpdated }) {
   const { t, locale } = useLocale();
 
   useEffect(() => {
@@ -86,12 +86,6 @@ export default function NotificationDetailModal({ item, subtitle, onClose, onUpd
             {item.modul && <span><MapPin className="h-3.5 w-3.5" />{item.modul}</span>}
           </div>
           <NotificationFeedback item={item} onUpdated={onUpdated} />
-          {canShowOnMap && onShowOnMap && (
-            <button type="button" className="btn-secondary mt-3" onClick={() => { onShowOnMap(item); onClose(); }}>
-              <MapPin className="h-4 w-4" />
-              {t.kamerayiGoster}
-            </button>
-          )}
         </div>
       </div>
     </div>

@@ -9,8 +9,9 @@ from pathlib import Path
 from typing import List, Optional
 
 from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, EmailStr, model_validator
 
@@ -44,6 +45,9 @@ from store import (
     ensure_demo_api_key,
     ensure_demo_seed,
     get_daily_metric,
+    get_mes_presence,
+    mes_productivity_for_user,
+    save_mes_presence,
     metrics_trend,
     notification_stats_for_date,
     notifications_for_date,
@@ -66,6 +70,7 @@ from store import (
 )
 from services.notifications import build_notification_payload, create_notification, push_notification
 from routes.integrations import router as integrations_router
+from security_middleware import SecurityHeadersMiddleware
 from demo_data import date_range, kpi_for_date, mes_productivity_for_date, product_for_date
 from mock_data import (
     AVAILABLE_DATES,
@@ -116,6 +121,26 @@ class UserCreate(BaseModel):
 class PasswordChange(BaseModel):
     mevcut_sifre: str
     yeni_sifre: str
+
+
+class NotificationJsonBody(BaseModel):
+    baslik: str
+    detay: str = ""
+    kategori: str = "İSG"
+    seviye: str = "uyari"
+    kamera: str = ""
+    modul: str = ""
+    gorsel: str = ""
+    tarih: Optional[str] = None
+    zaman: Optional[str] = None
+    guven: Optional[float] = None
+    alan: Optional[str] = None
+    model: Optional[str] = None
+
+
+class MesPresenceBody(BaseModel):
+    tarih: Optional[str] = None
+    personeller: List[dict]
 
 
 class HeartbeatBody(BaseModel):
@@ -238,6 +263,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="HypeVision API", version="3.1.0", lifespan=lifespan)
 app.include_router(integrations_router)
+app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -245,6 +271,51 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+def _friendly_http_detail(status: int, detail) -> str:
+    if isinstance(detail, str) and detail.strip():
+        text = detail.strip()
+        if status == 404 and text.lower() in ("not found", "not found."):
+            return "İstenen bilgi bulunamadı."
+        return text
+    if status == 401:
+        return "Oturumunuz sona erdi veya yetkiniz yok."
+    if status == 403:
+        return "Bu işlem için yetkiniz bulunmuyor."
+    if status == 404:
+        return "İstenen bilgi bulunamadı."
+    if status == 422:
+        return "Gönderilen bilgiler eksik veya hatalı."
+    if status == 429:
+        return "Çok fazla istek gönderildi. Lütfen kısa bir süre bekleyin."
+    if status >= 500:
+        return "Bir sorun oluştu. Lütfen daha sonra tekrar deneyin."
+    return "Bir sorun oluştu. Lütfen daha sonra tekrar deneyin."
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(_request: Request, exc: HTTPException):
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"ok": False, "detail": _friendly_http_detail(exc.status_code, exc.detail)},
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(_request: Request, _exc: RequestValidationError):
+    return JSONResponse(
+        status_code=422,
+        content={"ok": False, "detail": "Gönderilen bilgiler eksik veya hatalı. Alanları kontrol edin."},
+    )
+
+
+@app.exception_handler(404)
+async def not_found_handler(_request: Request, _exc):
+    return JSONResponse(
+        status_code=404,
+        content={"ok": False, "detail": "İstenen adres bulunamadı."},
+    )
 
 
 def get_current_user(creds: HTTPAuthorizationCredentials = Depends(security)) -> dict:
@@ -622,6 +693,31 @@ async def create_notification_route(
     return saved
 
 
+@app.post("/api/notifications/json")
+async def create_notification_json(
+    body: NotificationJsonBody,
+    background_tasks: BackgroundTasks,
+    user: dict = Depends(get_current_user),
+):
+    """Panel / entegrasyon — JSON ile İSG, yangın vb. bildirim gönder."""
+    today = date.today().isoformat()
+    payload = build_notification_payload(
+        user["id"],
+        baslik=body.baslik,
+        detay=body.detay,
+        kategori=body.kategori,
+        seviye=body.seviye,
+        kamera=body.kamera or "Kamera",
+        modul=body.modul,
+        gorsel=body.gorsel or "",
+        tarih=body.tarih or today,
+        zaman=body.zaman or "",
+    )
+    saved = create_notification(user["id"], payload)
+    background_tasks.add_task(push_notification, user["id"], saved)
+    return saved
+
+
 @app.get("/api/uploads/{filename}")
 def serve_upload(filename: str):
     path = UPLOAD_DIR / filename
@@ -661,17 +757,20 @@ def product_counts(tarih: Optional[str] = None):
 @app.get("/api/mes/productivity")
 def mes_productivity(tarih: Optional[str] = None, user: dict = Depends(get_current_user)):
     key = tarih or date.today().isoformat()
+    base = mes_productivity_for_user(user["id"], key)
     k = get_daily_metric(user["id"], key)
-    base = mes_productivity_for_date(key) if k else {
-        "tarih": key,
-        "ortalama_verimlilik": None,
-        "aktif_personel": 0,
-        "hatlar": [],
-    }
     if k:
         base["ortalama_verimlilik"] = float(k["verimlilik"]) if isinstance(k.get("verimlilik"), str) else k["verimlilik"]
-        base["aktif_personel"] = k["personel_aktif"]
     return base
+
+
+@app.post("/api/mes/presence")
+def mes_presence_ingest(body: MesPresenceBody, user: dict = Depends(get_current_user)):
+    """YOLO / entegrasyon — günlük personel varlık JSON gönderimi (kullanıcıya özel)."""
+    key = body.tarih or date.today().isoformat()
+    if not body.personeller:
+        raise HTTPException(400, "personeller listesi boş olamaz")
+    return save_mes_presence(user["id"], key, body.personeller)
 
 
 @app.get("/api/reports/kpis")
@@ -757,14 +856,11 @@ def dashboard_all(
     today_notifs = notifications_for_date(uid, today)
     all_notifs = list_notifications(uid)
     pc = panel_product_counts(today)
-    mes = mes_productivity_for_date(today)
+    mes = mes_productivity_for_user(uid, today)
     k = get_daily_metric(uid, today)
     if k:
         mes["ortalama_verimlilik"] = float(k["verimlilik"]) if isinstance(k.get("verimlilik"), str) else k["verimlilik"]
-        mes["aktif_personel"] = k["personel_aktif"]
-    else:
-        mes["ortalama_verimlilik"] = None
-        mes["aktif_personel"] = 0
+    # aktif_personel personel listesinden gelir (çok kiracılı)
     traffic = build_traffic_from_notifications(today_notifs)
     system_health = build_system_health(uid, floor_plan, today)
     return {

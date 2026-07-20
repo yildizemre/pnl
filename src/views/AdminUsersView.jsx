@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Copy, ExternalLink, Key, Map, Plus, RotateCcw, Trash2, Users } from "lucide-react";
-import FloorPlanEditor from "../components/admin/FloorPlanEditor";
+import { Copy, ExternalLink, Key, Plus, RotateCcw, Trash2, Users } from "lucide-react";
 import { api } from "../api";
 import { useAuth } from "../hooks/useAuth";
 import { useLocale } from "../context/LocaleContext";
@@ -19,8 +18,6 @@ export default function AdminUsersView() {
   const [keys, setKeys] = useState([]);
   const [newKeyRaw, setNewKeyRaw] = useState("");
   const [keyLabel, setKeyLabel] = useState("Mobil / Entegrasyon");
-  const [floorUser, setFloorUser] = useState(null);
-  const [openFloorAfterCreate, setOpenFloorAfterCreate] = useState(true);
   const [form, setForm] = useState({
     kullanici_adi: "",
     ad: "",
@@ -49,13 +46,10 @@ export default function AdminUsersView() {
 
   const submit = async (e) => {
     e.preventDefault();
-    const created = await api.createUser(form);
+    await api.createUser(form);
     setShowForm(false);
     setForm({ kullanici_adi: "", ad: "", email: "", sifre: "demo123", rol: "user", kurulum: "" });
     load();
-    if (openFloorAfterCreate && created?.id) {
-      setFloorUser(created);
-    }
   };
 
   const remove = async (u) => {
@@ -141,10 +135,6 @@ export default function AdminUsersView() {
             ))}
           </select>
           <button type="submit" className="btn-primary sm:col-span-2 lg:col-span-3">{t.kaydet}</button>
-          <label className="flex items-center gap-2 text-sm text-[var(--text-muted)] sm:col-span-2 lg:col-span-3">
-            <input type="checkbox" checked={openFloorAfterCreate} onChange={(e) => setOpenFloorAfterCreate(e.target.checked)} />
-            {t.krokiOlusturSonra}
-          </label>
         </form>
       )}
 
@@ -191,10 +181,6 @@ export default function AdminUsersView() {
                       <button type="button" onClick={() => openKeys(u)} className="btn-ghost" title={t.apiAnahtari}>
                         <Key className="h-3.5 w-3.5" />
                         API
-                      </button>
-                      <button type="button" onClick={() => setFloorUser(u)} className="btn-ghost" title={t.krokiEditor}>
-                        <Map className="h-3.5 w-3.5" />
-                        {t.kroki}
                       </button>
                       <button type="button" onClick={() => resetPanel(u)} className="btn-ghost text-amber-500" title={t.resetPanelData}>
                         <RotateCcw className="h-3.5 w-3.5" />
@@ -262,9 +248,6 @@ export default function AdminUsersView() {
             </ul>
           </div>
         </div>
-      )}
-      {floorUser && (
-        <FloorPlanEditor user={floorUser} onClose={() => setFloorUser(null)} />
       )}
     </>
   );

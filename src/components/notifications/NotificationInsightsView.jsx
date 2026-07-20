@@ -1,13 +1,17 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle, Bell, Bot, Camera, CheckCircle2, Sparkles, TrendingUp,
 } from "lucide-react";
+import {
+  Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis,
+} from "recharts";
 import { api } from "../../api";
 import { useLocale } from "../../context/LocaleContext";
 import { translateCategory } from "../../i18n/helpers";
 import FilterBar from "../FilterBar";
 import { EmptyChart } from "../EmptyState";
 import { Panel, StatCard } from "../ui";
+import { CHART, axisTick, chartTooltipStyle, gridStroke } from "../../lib/chartTheme";
 
 const INSIGHT_ICON = {
   summary: TrendingUp,
@@ -54,6 +58,16 @@ export default function NotificationInsightsView({ dates = [] }) {
   const kpi = insights?.kpi || {};
   const llm = insights?.llm_insights || [];
 
+  const falseAlarmChart = useMemo(
+    () => (kpi.yanlis_alarm || []).map((row) => ({
+      name: translateCategory(locale, row.kategori),
+      false_pct: row.false_pct,
+      hayir: row.hayir,
+      evet: row.evet,
+    })),
+    [kpi.yanlis_alarm, locale]
+  );
+
   return (
     <div className="notif-insights-page">
       <FilterBar
@@ -84,6 +98,41 @@ export default function NotificationInsightsView({ dates = [] }) {
               accent="green"
             />
           </div>
+
+          <Panel title={t.isgYanlisAlarm} subtitle={t.isgYanlisAlarmAlt}>
+            {falseAlarmChart.length ? (
+              <ResponsiveContainer width="100%" height={260}>
+                <BarChart data={falseAlarmChart} margin={{ top: 8, right: 8, left: 0, bottom: 8 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} vertical={false} />
+                  <XAxis dataKey="name" tick={axisTick} axisLine={false} tickLine={false} />
+                  <YAxis
+                    tick={axisTick}
+                    axisLine={false}
+                    tickLine={false}
+                    domain={[0, 100]}
+                    tickFormatter={(v) => `%${v}`}
+                  />
+                  <Tooltip
+                    contentStyle={chartTooltipStyle()}
+                    formatter={(v, _n, p) => [
+                      `%${v} (${p.payload.hayir}✗ / ${p.payload.evet}✓)`,
+                      t.isgYanlisAlarmOran,
+                    ]}
+                  />
+                  <Bar dataKey="false_pct" radius={[6, 6, 0, 0]} barSize={36}>
+                    {falseAlarmChart.map((row) => (
+                      <Cell
+                        key={row.name}
+                        fill={row.false_pct >= 40 ? CHART.red : row.false_pct >= 20 ? CHART.amber : CHART.emerald}
+                      />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <EmptyChart title={t.isgYanlisAlarmEmpty} subtitle={t.trainingEmptySub} />
+            )}
+          </Panel>
 
           <div className="notif-insights-grid">
             <Panel title={t.notifKpiKategoriler} subtitle={t.bugun}>

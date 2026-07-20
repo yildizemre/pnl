@@ -5,10 +5,11 @@ import uuid
 from datetime import date, datetime, timedelta, timezone
 
 from api_keys import generate_api_key, verify_api_key
+from config import DB_KIND
 from passlib.context import CryptContext
 from sqlalchemy.orm import Session, joinedload, object_session
 
-from models import ApiKeyModel, CameraModel, DailyMetricModel, FloorPlanModel, HeartbeatModel, NotificationModel, SessionLocal, UserModel, init_db
+from models import ApiKeyModel, CameraModel, DailyMetricModel, FloorPlanModel, HeartbeatModel, MesPresenceModel, MesStaffDayModel, NotificationModel, SessionLocal, UserModel, init_db
 from roles import modules_for_role
 from mock_data import NOTIFICATIONS, build_facility_cameras
 from demo_data import (
@@ -30,6 +31,7 @@ from demo_data import (
 )
 
 HEARTBEAT_MAX_SECONDS = 300
+HEARTBEAT_RECOMMEND_SECONDS = 180
 
 
 def _new_site_id() -> str:
@@ -505,12 +507,17 @@ def get_integration_status(user_id: str, base_url: str = "http://127.0.0.1:8000"
         "last_heartbeat": hb.get("ai_zaman"),
         "last_activity": hb.get("zaman"),
         "heartbeat_max_seconds": HEARTBEAT_MAX_SECONDS,
-        "endpoints": {
-            "health": f"{base_url}/api/v1/integrations/health",
-            "heartbeat": f"{base_url}/api/v1/integrations/heartbeat",
-            "notification": f"{base_url}/api/v1/integrations/notification",
-            "detect_upload": f"{base_url}/api/v1/integrations/notification/detect/upload",
-        },
+        "heartbeat_recommended_seconds": HEARTBEAT_RECOMMEND_SECONDS,
+        "database": DB_KIND,
+        "endpoints": [
+            {"method": "GET", "name": "health", "url": f"{base_url}/api/v1/integrations/health"},
+            {"method": "POST", "name": "heartbeat", "url": f"{base_url}/api/v1/integrations/heartbeat"},
+            {"method": "GET", "name": "mes_productivity", "url": f"{base_url}/api/v1/integrations/mes/productivity"},
+            {"method": "POST", "name": "mes_tick", "url": f"{base_url}/api/v1/integrations/mes/tick"},
+            {"method": "GET", "name": "notifications", "url": f"{base_url}/api/v1/integrations/notifications"},
+            {"method": "POST", "name": "notification", "url": f"{base_url}/api/v1/integrations/notification"},
+            {"method": "POST", "name": "detect_upload", "url": f"{base_url}/api/v1/integrations/notification/detect/upload"},
+        ],
     }
 
 
@@ -537,6 +544,7 @@ def _notif_to_dict(r: NotificationModel) -> dict:
         "okundu": r.okundu,
         "meta": meta,
         "feedback": r.feedback,
+        "created_at": r.created_at.isoformat() if r.created_at else None,
     }
 
 
@@ -702,6 +710,8 @@ def reset_user_panel_data(user_id: str) -> str | None:
         db.query(NotificationModel).filter(NotificationModel.user_id == user_id).delete()
         db.query(DailyMetricModel).filter(DailyMetricModel.user_id == user_id).delete()
         db.query(CameraModel).filter(CameraModel.user_id == user_id).delete()
+        db.query(MesPresenceModel).filter(MesPresenceModel.user_id == user_id).delete()
+        db.query(MesStaffDayModel).filter(MesStaffDayModel.user_id == user_id).delete()
         db.commit()
     return None
 
@@ -720,6 +730,8 @@ def delete_user(user_id: str) -> str | None:
         db.query(HeartbeatModel).filter(HeartbeatModel.user_id == user_id).delete()
         db.query(ApiKeyModel).filter(ApiKeyModel.user_id == user_id).delete()
         db.query(FloorPlanModel).filter(FloorPlanModel.user_id == user_id).delete()
+        db.query(MesPresenceModel).filter(MesPresenceModel.user_id == user_id).delete()
+        db.query(MesStaffDayModel).filter(MesStaffDayModel.user_id == user_id).delete()
         db.delete(u)
         db.commit()
     return None
@@ -743,6 +755,214 @@ def get_daily_metric(user_id: str, tarih: str) -> dict | None:
             "bildirim_sayisi": row.bildirim_sayisi,
             "log_sayisi": row.log_sayisi,
         }
+
+
+def get_mes_presence(user_id: str, tarih: str) -> list[dict] | None:
+    """Önce tick tabanlı mes_staff_day; yoksa legacy mes_presence JSON."""
+    from services.mes_ingest import build_person_record
+
+    with _session() as db:
+        rows = (
+            db.query(MesStaffDayModel)
+            .filter(MesStaffDayModel.user_id == user_id, MesStaffDayModel.tarih == tarih)
+            .order_by(MesStaffDayModel.person_id.asc())
+            .all()
+        )
+        if rows:
+            out = []
+            for r in rows:
+                try:
+                    slots = json.loads(r.slots_json or "{}")
+                except json.JSONDecodeError:
+                    slots = {}
+                out.append(
+                    build_person_record(
+                        person_id=r.person_id,
+                        ad=r.ad,
+                        masa=r.masa,
+                        hat=r.hat,
+                        kamera=r.kamera,
+                        slots=slots if isinstance(slots, dict) else {},
+                    )
+                )
+            return out
+
+        row = (
+            db.query(MesPresenceModel)
+            .filter(MesPresenceModel.user_id == user_id, MesPresenceModel.tarih == tarih)
+            .order_by(MesPresenceModel.id.desc())
+            .first()
+        )
+        if not row:
+            return None
+        try:
+            data = json.loads(row.payload_json or "[]")
+            return data if isinstance(data, list) else None
+        except json.JSONDecodeError:
+            return None
+
+
+def ingest_mes_ticks(
+    user_id: str,
+    *,
+    camera_id: str,
+    stations: list[dict],
+    observed_at: str | None = None,
+    interval_minutes: int = 30,
+    tarih: str | None = None,
+) -> dict:
+    """YOLO 30 dk tick — kişi×gün upsert, hesaplama backend'de.
+
+    Ölçek: tek request'te kamera altındaki tüm masalar (örn. 2–30 kişi).
+    1000 üye × N kamera / 30 dk — satır başına upsert, full JSON rewrite yok.
+    """
+    from services.mes_ingest import (
+        build_person_record,
+        merge_slot,
+        normalize_station,
+        parse_observed_at,
+        slot_index_for,
+    )
+
+    dt = parse_observed_at(observed_at)
+    day = tarih or dt.date().isoformat()
+    slot_i = slot_index_for(dt)
+    now = datetime.now(timezone.utc)
+    updated = []
+
+    with _session() as db:
+        for raw in stations:
+            st = normalize_station(raw, camera_id)
+            if not st:
+                continue
+            row = (
+                db.query(MesStaffDayModel)
+                .filter(
+                    MesStaffDayModel.user_id == user_id,
+                    MesStaffDayModel.tarih == day,
+                    MesStaffDayModel.person_id == st["person_id"],
+                )
+                .first()
+            )
+            try:
+                slots = json.loads(row.slots_json or "{}") if row else {}
+            except json.JSONDecodeError:
+                slots = {}
+            if not isinstance(slots, dict):
+                slots = {}
+            slots = merge_slot(slots, slot_i, st["present"])
+
+            if row:
+                row.ad = st["ad"] or row.ad
+                row.masa = st["masa"] or row.masa
+                row.hat = st["hat"] or row.hat
+                row.kamera = st["kamera"] or row.kamera
+                row.slots_json = json.dumps(slots, ensure_ascii=False)
+                row.updated_at = now
+            else:
+                row = MesStaffDayModel(
+                    user_id=user_id,
+                    tarih=day,
+                    person_id=st["person_id"],
+                    ad=st["ad"],
+                    masa=st["masa"],
+                    hat=st["hat"],
+                    kamera=st["kamera"],
+                    slots_json=json.dumps(slots, ensure_ascii=False),
+                    updated_at=now,
+                )
+                db.add(row)
+
+            updated.append(
+                build_person_record(
+                    person_id=st["person_id"],
+                    ad=st["ad"],
+                    masa=st["masa"],
+                    hat=st["hat"],
+                    kamera=st["kamera"],
+                    slots=slots,
+                    as_of=dt,
+                )
+            )
+        db.commit()
+
+    avg = (
+        round(sum(float(p.get("presence_pct") or 0) for p in updated) / len(updated), 1)
+        if updated else None
+    )
+    return {
+        "ok": True,
+        "tarih": day,
+        "camera_id": camera_id,
+        "slot": slot_i,
+        "interval_minutes": interval_minutes,
+        "updated": len(updated),
+        "ortalama_yerinde": avg,
+        "personeller": updated,
+    }
+
+
+def save_mes_presence(user_id: str, tarih: str, personeller: list[dict]) -> dict:
+    """Legacy: günlük full snapshot (test / panel). Tick tablosunu da temizler."""
+    payload = json.dumps(personeller, ensure_ascii=False)
+    with _session() as db:
+        row = (
+            db.query(MesPresenceModel)
+            .filter(MesPresenceModel.user_id == user_id, MesPresenceModel.tarih == tarih)
+            .first()
+        )
+        now = datetime.now(timezone.utc)
+        if row:
+            row.payload_json = payload
+            row.updated_at = now
+        else:
+            db.add(
+                MesPresenceModel(
+                    user_id=user_id,
+                    tarih=tarih,
+                    payload_json=payload,
+                    updated_at=now,
+                )
+            )
+        db.query(MesStaffDayModel).filter(
+            MesStaffDayModel.user_id == user_id,
+            MesStaffDayModel.tarih == tarih,
+        ).delete(synchronize_session=False)
+        db.commit()
+    avg = 0.0
+    if personeller:
+        avg = round(sum(float(p.get("presence_pct") or 0) for p in personeller) / len(personeller), 1)
+    return {
+        "tarih": tarih,
+        "aktif_personel": len(personeller),
+        "ortalama_yerinde": avg,
+        "personeller": personeller,
+    }
+
+
+def mes_productivity_for_user(user_id: str, tarih: str) -> dict:
+    """Önce kullanıcıya özel kayıt; yoksa demo seed listesi."""
+    custom = get_mes_presence(user_id, tarih)
+    if custom is not None:
+        avg = (
+            round(sum(float(p.get("presence_pct") or 0) for p in custom) / len(custom), 1)
+            if custom else None
+        )
+        k = get_daily_metric(user_id, tarih) or kpi_for_date(tarih)
+        return {
+            "tarih": tarih,
+            "ortalama_verimlilik": k.get("verimlilik") if isinstance(k, dict) else None,
+            "ortalama_yerinde": avg,
+            "aktif_personel": len(custom),
+            "personeller": custom,
+            "vardiya_trend": [
+                {"vardiya": "sabah", "verimlilik": round(float(k.get("verimlilik") or 90) - 1.2, 1)},
+            ],
+            "source": "user",
+        }
+    base = mes_productivity_for_date(tarih)
+    base["source"] = "demo"
+    return base
 
 
 def notifications_for_date(user_id: str, tarih: str) -> list[dict]:
@@ -1004,6 +1224,7 @@ def build_notification_insights(user_id: str, tarih: str) -> dict:
     guven_vals: list[float] = []
     feedback_evet = 0
     feedback_hayir = 0
+    by_kat_fb: dict[str, dict] = {}
 
     for n in notifs:
         sev = n.get("seviye") or "bilgi"
@@ -1024,17 +1245,34 @@ def build_notification_insights(user_id: str, tarih: str) -> dict:
             feedback_evet += 1
         elif fb == "hayir":
             feedback_hayir += 1
+        if fb in ("evet", "hayir"):
+            if kat not in by_kat_fb:
+                by_kat_fb[kat] = {"evet": 0, "hayir": 0}
+            by_kat_fb[kat][fb] += 1
 
     unread = len([n for n in notifs if not n.get("okundu")])
+    closed = len([n for n in notifs if n.get("okundu")])
     ort_guven = round(sum(guven_vals) / len(guven_vals) * 100, 1) if guven_vals else None
     top_cams = sorted(by_cam.items(), key=lambda x: -x[1])[:8]
     top_cats = sorted(by_kat.items(), key=lambda x: -x[1])
     now_iso = datetime.now(timezone.utc).isoformat()
 
+    false_alarm = []
+    for kat, v in sorted(by_kat_fb.items(), key=lambda x: -(x[1]["evet"] + x[1]["hayir"])):
+        tot = v["evet"] + v["hayir"]
+        false_alarm.append({
+            "kategori": kat,
+            "evet": v["evet"],
+            "hayir": v["hayir"],
+            "false_pct": round(v["hayir"] / tot * 100, 1) if tot else 0,
+        })
+
     kpi = {
         "toplam": len(notifs),
         "okunmamis": unread,
+        "kapatilan": closed,
         "kritik": by_sev["kritik"],
+        "kritik_bekleyen": len([n for n in notifs if n.get("seviye") == "kritik" and not n.get("okundu")]),
         "uyari": by_sev["uyari"],
         "bilgi": by_sev["bilgi"],
         "kategoriler": [{"kategori": k, "adet": v} for k, v in top_cats],
@@ -1042,6 +1280,7 @@ def build_notification_insights(user_id: str, tarih: str) -> dict:
         "ortalama_guven": ort_guven,
         "feedback_evet": feedback_evet,
         "feedback_hayir": feedback_hayir,
+        "yanlis_alarm": false_alarm,
         "kroki_kamera": len(points),
     }
 

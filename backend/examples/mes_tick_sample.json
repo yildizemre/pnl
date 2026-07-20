@@ -1,0 +1,21 @@
+{
+  "camera_id": "Kamera 01",
+  "interval_minutes": 30,
+  "observed_at": "2026-07-20T10:30:00",
+  "stations": [
+    {
+      "person_id": "P-001",
+      "name": "Mehmet Kaya",
+      "masa": "Masa A-01",
+      "hat": "Montaj Hattı A",
+      "present": true
+    },
+    {
+      "person_id": "P-002",
+      "name": "Ayşe Demir",
+      "masa": "Masa A-02",
+      "hat": "Montaj Hattı A",
+      "present": false
+    }
+  ]
+}

@@ -21,7 +21,28 @@ cd backend
 python examples/run_demo.py
 ```
 
-Bu komut sırayla heartbeat + metin bildirim + görseli bildirim gönderir.
+## Yangın (İsg & Güvenlik)
+
+```bash
+cd backend
+python examples/send_yangin.py
+```
+
+## MES — YOLO 30 dk tick (1 kamera, 2 personel)
+
+Backend oranı hesaplar; YOLO sadece `present: true/false` yollar.
+
+```bash
+cd backend
+python examples/send_mes_tick.py
+python examples/send_mes_tick.py --absent P-002
+```
+
+Örnek JSON: `examples/mes_tick_sample.json`  
+Endpoint: `POST /api/v1/integrations/mes/tick`
+
+Ölçek: her üyelik kendi API key'i ile; kamera başına 1 istek (içinde N masa).  
+1000 üye × 30 masa ≈ kamera gruplarına bölünmüş batch upsert (`mes_staff_day`).
 
 ## Tek tek çalıştırma
 
@@ -48,12 +69,13 @@ python examples/send_image.py --image ./assets/demo-camera.jpg --baslik "Baret y
 
 1. `http://localhost:5173` açın
 2. `demo@hypevisionlab.com` / `demo123` ile giriş
-3. Sağ üst çan ikonu → Son Bildirimler
-4. Bildirimler sayfasında görseli olan kayıt
+3. **İsg & Güvenlik** → yangın kaydı
+4. **Mes** → tick sonrası personel barları
 
 ## API endpoint'leri
 
-- `POST /api/v1/integrations/notification` — JSON
+- `POST /api/v1/integrations/notification` — JSON bildirim
 - `POST /api/v1/integrations/notification/upload` — multipart + görsel
+- `POST /api/v1/integrations/mes/tick` — YOLO varlık tick
 
 Detay: `backend/docs/INTEGRATION.md`

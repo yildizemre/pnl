@@ -4,6 +4,7 @@ export const CHART = {
   cyan: "#22d3ee",
   violet: "#a78bfa",
   amber: "#fbbf24",
+  red: "#f43f5e",
   slate: "#94a3b8",
 };
 

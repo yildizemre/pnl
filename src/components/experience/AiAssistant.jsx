@@ -26,15 +26,15 @@ function buildReply(intent, summary, locale) {
         ? `Saat 10:15–11:00 arası Hat B'de verim %${(summary?.hat_verimlilik?.ortalama ?? 78) - 6} seviyesine indi. Olası nedenler: vardiya değişimi, paketleme darboğazı.`
         : `Between 10:15–11:00 Line B efficiency dropped to %${(summary?.hat_verimlilik?.ortalama ?? 78) - 6}. Likely causes: shift change, packing bottleneck.`,
       actions: tr
-        ? ["Hat B kamera akışını aç", "MES vardiya raporunu göster", "Son 2 saat timeline"]
-        : ["Open Line B camera", "Show MES shift report", "Last 2h timeline"],
+        ? ["Hat B kamera akışını aç", "MES vardiya raporunu göster", "Raporlar"]
+        : ["Open Line B camera", "Show MES shift report", "Reports"],
     },
     isg: {
       title: tr ? "İSG olay özeti" : "HSE incident summary",
       body: tr
-        ? `Bugün ${summary?.isg_ihlaller?.bugun ?? 3} ihlal kaydı var. En sık: KKD eksikliği (Üretim Hattı A). Digital Twin'de kırmızı noktaları inceleyin.`
-        : `Today ${summary?.isg_ihlaller?.bugun ?? 3} violations recorded. Most common: missing PPE (Line A). Check red dots on Digital Twin.`,
-      actions: tr ? ["Krokiye git", "İhlal listesi", "PDF rapor"] : ["Go to floor plan", "Violation list", "PDF report"],
+        ? `Bugün ${summary?.isg_ihlaller?.bugun ?? 3} ihlal kaydı var. En sık: KKD eksikliği (Üretim Hattı A). Bildirimler listesinden detaya bakın.`
+        : `Today ${summary?.isg_ihlaller?.bugun ?? 3} violations recorded. Most common: missing PPE (Line A). Check details in Notifications.`,
+      actions: tr ? ["İhlal listesi", "PDF rapor"] : ["Violation list", "PDF report"],
     },
     product: {
       title: tr ? "Ürün sayım durumu" : "Product count status",
@@ -55,7 +55,7 @@ function buildReply(intent, summary, locale) {
       body: tr
         ? `Verim %${summary?.hat_verimlilik?.ortalama ?? 0}, ${summary?.bildirim_sayisi ?? 0} okunmamış bildirim, ${summary?.isg_ihlaller?.bugun ?? 0} İSG ihlali. Sistem AI aktif.`
         : `Efficiency %${summary?.hat_verimlilik?.ortalama ?? 0}, ${summary?.bildirim_sayisi ?? 0} unread alerts, ${summary?.isg_ihlaller?.bugun ?? 0} HSE violations. AI system active.`,
-      actions: tr ? ["Timeline aç", "Raporlar"] : ["Open timeline", "Reports"],
+      actions: tr ? ["Bildirimler", "Raporlar"] : ["Notifications", "Reports"],
     },
     default: {
       title: tr ? "HypeVision Asistan" : "HypeVision Assistant",

@@ -9,12 +9,23 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
 
+from config import DB_KIND
 from services.detection import detection_to_notification_fields
 from services.notifications import build_notification_payload, create_notification, push_notification
-from store import heartbeat_active, record_heartbeat, resolve_api_key
+from store import (
+    HEARTBEAT_MAX_SECONDS,
+    HEARTBEAT_RECOMMEND_SECONDS,
+    get_notification,
+    heartbeat_active,
+    ingest_mes_ticks,
+    list_notifications,
+    mes_productivity_for_user,
+    record_heartbeat,
+    resolve_api_key,
+)
 
 router = APIRouter(prefix="/api/v1/integrations", tags=["integrations"])
 
@@ -56,6 +67,25 @@ class HeartbeatIn(BaseModel):
     camera_id: str | None = None
 
 
+class MesStationIn(BaseModel):
+    person_id: str = Field(..., min_length=1, max_length=64)
+    name: str | None = None
+    ad: str | None = None
+    masa: str | None = None
+    hat: str | None = None
+    present: bool = True
+
+
+class MesTickIn(BaseModel):
+    """YOLO her ~30 dk bir kamera için gönderir. Hesaplama backend'de."""
+
+    camera_id: str = Field(..., min_length=1, max_length=128)
+    observed_at: str | None = Field(default=None, description="ISO-8601; yoksa sunucu saati")
+    interval_minutes: int = Field(default=30, ge=5, le=120)
+    tarih: str | None = None
+    stations: list[MesStationIn] = Field(..., min_length=1, max_length=100)
+
+
 def get_api_user(x_api_key: str = Header(..., alias="X-API-Key")) -> dict:
     user = resolve_api_key(x_api_key.strip())
     if not user:
@@ -92,6 +122,9 @@ def integration_health(user: dict = Depends(get_api_user)):
         "user_id": user["id"],
         "email": user["email"],
         "ai_aktif": heartbeat_active(user["id"]),
+        "database": DB_KIND,
+        "heartbeat_recommended_seconds": HEARTBEAT_RECOMMEND_SECONDS,
+        "heartbeat_max_idle_seconds": HEARTBEAT_MAX_SECONDS,
         "time": datetime.now().isoformat(),
     }
 
@@ -99,7 +132,59 @@ def integration_health(user: dict = Depends(get_api_user)):
 @router.post("/heartbeat")
 def integration_heartbeat(body: HeartbeatIn, user: dict = Depends(get_api_user)):
     record_heartbeat(user["id"], body.camera_id, ai_server=True)
-    return {"ok": True, "ai_aktif": True}
+    return {
+        "ok": True,
+        "ai_aktif": True,
+        "heartbeat_recommended_seconds": HEARTBEAT_RECOMMEND_SECONDS,
+    }
+
+
+@router.get("/mes/productivity")
+def integration_mes_productivity(
+    user: dict = Depends(get_api_user),
+    tarih: str | None = Query(default=None, description="YYYY-MM-DD; yoksa bugün"),
+):
+    """Bilgi işlem / ERP — personel verimlilik verisini GET ile çeker."""
+    key = tarih or datetime.now().date().isoformat()
+    data = mes_productivity_for_user(user["id"], key)
+    return {"ok": True, **data}
+
+
+@router.post("/mes/tick")
+def integration_mes_tick(body: MesTickIn, user: dict = Depends(get_api_user)):
+    """Personel varlık tick — kamera başına batch (ör. 2 masa)."""
+    stations = [s.model_dump() for s in body.stations]
+    result = ingest_mes_ticks(
+        user["id"],
+        camera_id=body.camera_id,
+        stations=stations,
+        observed_at=body.observed_at,
+        interval_minutes=body.interval_minutes,
+        tarih=body.tarih,
+    )
+    _touch_ai(user["id"], body.camera_id)
+    return result
+
+
+@router.get("/notifications")
+def integration_list_notifications(
+    user: dict = Depends(get_api_user),
+    limit: int = Query(default=50, ge=1, le=200),
+    tarih: str | None = Query(default=None, description="YYYY-MM-DD filtresi"),
+):
+    """Bilgi işlem — bildirim listesini GET ile çeker (yalnızca bu müşteri)."""
+    items = [n for n in list_notifications(user["id"]) if n.get("user_id") == user["id"]]
+    if tarih:
+        items = [n for n in items if n.get("tarih") == tarih]
+    return {"ok": True, "count": min(len(items), limit), "notifications": items[:limit]}
+
+
+@router.get("/notifications/{notification_id}")
+def integration_get_notification(notification_id: int, user: dict = Depends(get_api_user)):
+    row = get_notification(notification_id, user["id"])
+    if not row or row.get("user_id") != user["id"]:
+        raise HTTPException(404, "Bildirim bulunamadı")
+    return {"ok": True, "notification": row}
 
 
 @router.post("/notification/detect")

@@ -8,18 +8,9 @@ function modLabel(mod, locale) {
   return row ? (locale === "EN" ? row.labelEn : row.labelTr) : mod;
 }
 
-export default function CameraCapabilityList({ trackedCameras = [], floorPlan, compact = false }) {
+export default function CameraCapabilityList({ trackedCameras = [], compact = false }) {
   const { t, locale } = useLocale();
-  const points = floorPlan?.points || [];
-  const items = trackedCameras?.length
-    ? trackedCameras
-    : points.map((p, i) => ({
-        id: p.id || `pt-${i}`,
-        ad: p.tag || p.label || `${t.kameraAlan} ${i + 1}`,
-        modules: p.modules || ["genel"],
-        rules: getRulesForModules(p.modules || ["genel"]),
-        konum: t.krokiKonum || "Kroki",
-      }));
+  const items = trackedCameras || [];
 
   if (!items.length) {
     return (

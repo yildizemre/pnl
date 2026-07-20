@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Text, create_engine
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, create_engine
 from sqlalchemy.orm import DeclarativeBase, relationship, sessionmaker
 
 from config import DATABASE_URL
@@ -118,6 +118,38 @@ class FloorPlanModel(Base):
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     user = relationship("UserModel", backref="floor_plan", uselist=False)
+
+
+class MesPresenceModel(Base):
+    """Kullanıcıya özel günlük personel varlık JSON (çok kiracılı) — legacy full snapshot."""
+
+    __tablename__ = "mes_presence"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(String(64), ForeignKey("users.id"), nullable=False, index=True)
+    tarih = Column(String(16), nullable=False, index=True)
+    payload_json = Column(Text, default="[]")
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class MesStaffDayModel(Base):
+    """Kişi×gün satırı — 30 dk YOLO tick upsert (ölçek: 1000 üye × 30 masa)."""
+
+    __tablename__ = "mes_staff_day"
+    __table_args__ = (
+        UniqueConstraint("user_id", "tarih", "person_id", name="uq_mes_staff_day"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(String(64), ForeignKey("users.id"), nullable=False, index=True)
+    tarih = Column(String(16), nullable=False, index=True)
+    person_id = Column(String(64), nullable=False)
+    ad = Column(String(256), default="")
+    masa = Column(String(128), default="")
+    hat = Column(String(128), default="")
+    kamera = Column(String(128), default="")
+    slots_json = Column(Text, default="{}")
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
 _connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}

@@ -27,8 +27,8 @@ const CAT_EN = {
 const SEV_TR = { kritik: "Kritik", uyari: "Uyarı", bilgi: "Bilgi" };
 const SEV_EN = { kritik: "Critical", uyari: "Warning", bilgi: "Info" };
 
-const DURUM_TR = { optimum: "Optimum", iyi: "Good", dikkat: "Attention" };
-const DURUM_EN = { optimum: "Optimum", iyi: "Good", dikkat: "Watch" };
+const DURUM_TR = { optimum: "Optimum", iyi: "İyi", dikkat: "Dikkat", verimli: "Verimli", verimsiz: "Verimsiz" };
+const DURUM_EN = { optimum: "Optimum", iyi: "Good", dikkat: "Watch", verimli: "Efficient", verimsiz: "Inefficient" };
 
 export function translateCategory(locale, value) {
   const m = locale === "EN" ? CAT_EN : CAT_TR;

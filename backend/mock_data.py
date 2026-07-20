@@ -192,33 +192,40 @@ DETECTION_LOGS = [
     {"zaman": _t(6, 30), "kamera": "Montaj Hattı A — Giriş", "modul": "Vardiya Giriş", "durum": "Normal", "tip": "normal", "tarih": AVAILABLE_DATES[0]},
 ]
 
+# Hype Demo paneli — 10 kişilik örnek (Sabah 08:00–17:00)
+HYPE_DEMO_PERSONNEL = [
+    {"id": "P-001", "ad": "Mehmet Kaya", "hat": "Montaj Hattı A", "masa": "Masa A-01", "kamera": "Kamera 01", "verimlilik": 96.2, "vardiya": "sabah", "durum": "verimli"},
+    {"id": "P-002", "ad": "Ayşe Demir", "hat": "Montaj Hattı A", "masa": "Masa A-02", "kamera": "Kamera 02", "verimlilik": 94.8, "vardiya": "sabah", "durum": "verimli"},
+    {"id": "P-003", "ad": "Ali Yıldız", "hat": "Montaj Hattı B", "masa": "Masa B-01", "kamera": "Kamera 03", "verimlilik": 91.5, "vardiya": "sabah", "durum": "verimli"},
+    {"id": "P-004", "ad": "Fatma Çelik", "hat": "Paketleme", "masa": "Paket 01", "kamera": "Kamera 04", "verimlilik": 97.4, "vardiya": "sabah", "durum": "verimli"},
+    {"id": "P-005", "ad": "Can Öztürk", "hat": "Paketleme", "masa": "Paket 02", "kamera": "Kamera 05", "verimlilik": 95.1, "vardiya": "sabah", "durum": "verimli"},
+    {"id": "P-006", "ad": "Zeynep Arslan", "hat": "Kalite Kontrol", "masa": "KK-01", "kamera": "Kamera 06", "verimlilik": 88.2, "vardiya": "sabah", "durum": "verimsiz"},
+    {"id": "P-007", "ad": "Burak Koç", "hat": "Montaj Hattı B", "masa": "Masa B-02", "kamera": "Kamera 07", "verimlilik": 82.0, "vardiya": "sabah", "durum": "verimsiz"},
+    {"id": "P-008", "ad": "Elif Şahin", "hat": "Depo Operasyon", "masa": "Depo 01", "kamera": "Kamera 08", "verimlilik": 93.6, "vardiya": "sabah", "durum": "verimli"},
+    {"id": "P-009", "ad": "Emre Yıldız", "hat": "Montaj Hattı A", "masa": "Masa A-05", "kamera": "Kamera 09", "verimlilik": 75.0, "vardiya": "sabah", "durum": "verimsiz"},
+    {"id": "P-010", "ad": "Selin Güneş", "hat": "Paketleme", "masa": "Paket 03", "kamera": "Kamera 10", "verimlilik": 96.8, "vardiya": "sabah", "durum": "verimli"},
+]
+
 PERSONNEL_LIST = [
-    {"id": "P-001", "ad": "Mehmet Kaya", "hat": "Montaj Hattı A", "verimlilik": 96.2, "vardiya": "06-14", "durum": "optimum", "tarih": AVAILABLE_DATES[0]},
-    {"id": "P-002", "ad": "Ayşe Demir", "hat": "Montaj Hattı A", "verimlilik": 94.8, "vardiya": "06-14", "durum": "optimum", "tarih": AVAILABLE_DATES[0]},
-    {"id": "P-003", "ad": "Ali Yıldız", "hat": "Montaj Hattı B", "verimlilik": 91.5, "vardiya": "06-14", "durum": "iyi", "tarih": AVAILABLE_DATES[0]},
-    {"id": "P-004", "ad": "Fatma Çelik", "hat": "Paketleme", "verimlilik": 97.4, "vardiya": "06-14", "durum": "optimum", "tarih": AVAILABLE_DATES[0]},
-    {"id": "P-005", "ad": "Can Öztürk", "hat": "Paketleme", "verimlilik": 95.1, "vardiya": "14-22", "durum": "optimum", "tarih": AVAILABLE_DATES[0]},
-    {"id": "P-006", "ad": "Zeynep Arslan", "hat": "Kalite Kontrol", "verimlilik": 88.2, "vardiya": "06-14", "durum": "dikkat", "tarih": AVAILABLE_DATES[0]},
-    {"id": "P-007", "ad": "Burak Koç", "hat": "Montaj Hattı B", "verimlilik": 82.0, "vardiya": "14-22", "durum": "dikkat", "tarih": AVAILABLE_DATES[0]},
-    {"id": "P-008", "ad": "Elif Şahin", "hat": "Depo Operasyon", "verimlilik": 93.6, "vardiya": "06-14", "durum": "iyi", "tarih": AVAILABLE_DATES[0]},
-    {"id": "P-009", "ad": "Murat Aydın", "hat": "Montaj Hattı A", "verimlilik": 93.1, "vardiya": "14-22", "durum": "iyi", "tarih": AVAILABLE_DATES[0]},
-    {"id": "P-010", "ad": "Selin Güneş", "hat": "Paketleme", "verimlilik": 96.8, "vardiya": "06-14", "durum": "optimum", "tarih": AVAILABLE_DATES[0]},
-    {"id": "P-011", "ad": "Oğuz Kılıç", "hat": "Sevkiyat", "verimlilik": 90.4, "vardiya": "14-22", "durum": "iyi", "tarih": AVAILABLE_DATES[0]},
-    {"id": "P-012", "ad": "Deniz Acar", "hat": "Kaynak Atölyesi", "verimlilik": 87.9, "vardiya": "06-14", "durum": "dikkat", "tarih": AVAILABLE_DATES[0]},
-    {"id": "P-013", "ad": "Ece Yılmaz", "hat": "Montaj Hattı B", "verimlilik": 95.6, "vardiya": "22-06", "durum": "optimum", "tarih": AVAILABLE_DATES[0]},
-    {"id": "P-014", "ad": "Serkan Polat", "hat": "Depo Operasyon", "verimlilik": 91.2, "vardiya": "14-22", "durum": "iyi", "tarih": AVAILABLE_DATES[0]},
-    {"id": "P-015", "ad": "Gizem Tunç", "hat": "Kalite Kontrol", "verimlilik": 94.1, "vardiya": "14-22", "durum": "optimum", "tarih": AVAILABLE_DATES[0]},
-    {"id": "P-016", "ad": "Kemal Erdoğan", "hat": "Montaj Hattı A", "verimlilik": 89.7, "vardiya": "22-06", "durum": "iyi", "tarih": AVAILABLE_DATES[0]},
+    *HYPE_DEMO_PERSONNEL,
+    {"id": "P-011", "ad": "Oğuz Kılıç", "hat": "Sevkiyat", "masa": "Sevk 01", "kamera": "Kamera 11", "verimlilik": 90.4, "vardiya": "14-22", "durum": "iyi"},
+    {"id": "P-012", "ad": "Deniz Acar", "hat": "Kaynak Atölyesi", "masa": "Kaynak 01", "kamera": "Kamera 12", "verimlilik": 87.9, "vardiya": "06-14", "durum": "dikkat"},
+    {"id": "P-013", "ad": "Ece Yılmaz", "hat": "Montaj Hattı B", "masa": "Masa B-03", "kamera": "Kamera 13", "verimlilik": 95.6, "vardiya": "22-06", "durum": "optimum"},
+    {"id": "P-014", "ad": "Serkan Polat", "hat": "Depo Operasyon", "masa": "Depo 02", "kamera": "Kamera 14", "verimlilik": 91.2, "vardiya": "14-22", "durum": "iyi"},
+    {"id": "P-015", "ad": "Gizem Tunç", "hat": "Kalite Kontrol", "masa": "KK-02", "kamera": "Kamera 15", "verimlilik": 94.1, "vardiya": "14-22", "durum": "optimum"},
+    {"id": "P-016", "ad": "Kemal Erdoğan", "hat": "Montaj Hattı A", "masa": "Masa A-04", "kamera": "Kamera 16", "verimlilik": 89.7, "vardiya": "22-06", "durum": "iyi"},
+    {"id": "P-017", "ad": "Hande Aksoy", "hat": "Paketleme", "masa": "Paket 04", "kamera": "Kamera 18", "verimlilik": 92.4, "vardiya": "06-14", "durum": "iyi"},
+    {"id": "P-018", "ad": "Tolga Şimşek", "hat": "Montaj Hattı B", "masa": "Masa B-04", "kamera": "Kamera 19", "verimlilik": 86.3, "vardiya": "14-22", "durum": "dikkat"},
+    {"id": "P-019", "ad": "İrem Kara", "hat": "Kalite Kontrol", "masa": "KK-03", "kamera": "Kamera 20", "verimlilik": 97.1, "vardiya": "06-14", "durum": "optimum"},
+    {"id": "P-020", "ad": "Yusuf Demirtaş", "hat": "Sevkiyat", "masa": "Sevk 02", "kamera": "Kamera 21", "verimlilik": 88.9, "vardiya": "06-14", "durum": "dikkat"},
 ]
 
 PERSONNEL_PRODUCTIVITY = {
-    "ortalama_verimlilik": 94.2,
-    "aktif_personel": 38,
-    "personeller": PERSONNEL_LIST,
+    "ortalama_verimlilik": 91.1,
+    "aktif_personel": 10,
+    "personeller": HYPE_DEMO_PERSONNEL,
     "vardiya_trend": [
-        {"vardiya": "06-14", "verimlilik": 92.1},
-        {"vardiya": "14-22", "verimlilik": 94.8},
-        {"vardiya": "22-06", "verimlilik": 89.3},
+        {"vardiya": "sabah", "verimlilik": 92.1},
     ],
 }
 

@@ -53,6 +53,12 @@ export default function IntegrationPanel({ onTestComplete }) {
   };
 
   const mins = Math.round((status?.heartbeat_max_seconds || 300) / 60);
+  const recMins = Math.round((status?.heartbeat_recommended_seconds || 180) / 60);
+  const endpoints = Array.isArray(status?.endpoints)
+    ? status.endpoints
+    : status?.endpoints
+      ? Object.entries(status.endpoints).map(([name, url]) => ({ method: "—", name, url }))
+      : [];
 
   return (
     <Panel title={t.integrationTitle} subtitle={t.integrationSubtitle}>
@@ -87,8 +93,16 @@ export default function IntegrationPanel({ onTestComplete }) {
           {!status?.ai_aktif && (
             <p className="text-sm text-amber-600 dark:text-amber-400">
               {en
-                ? `AI server sent no signal in the last ${mins} min. Send heartbeat or a notification from your integration.`
-                : `AI sunucu son ${mins} dk içinde sinyal göndermedi. Entegrasyonunuzdan heartbeat veya bildirim gönderin.`}
+                ? `AI server sent no signal in the last ${mins} min. Send heartbeat every ${recMins} min or a notification from your integration.`
+                : `AI sunucu son ${mins} dk içinde sinyal göndermedi. Entegrasyonunuzdan her ${recMins} dk heartbeat veya bildirim gönderin.`}
+            </p>
+          )}
+
+          {status?.heartbeat_recommended_seconds && (
+            <p className="text-sm text-[var(--text-muted)]">
+              {en
+                ? `Recommended: GET health or POST heartbeat every ${recMins} minutes. Panel marks AI inactive after ${mins} minutes without signal.`
+                : `Önerilen: Her ${recMins} dakikada GET health veya POST heartbeat. ${mins} dakika sinyal gelmezse panel AI'yı pasif sayar.`}
             </p>
           )}
 
@@ -99,13 +113,13 @@ export default function IntegrationPanel({ onTestComplete }) {
           <div>
             <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)]">{t.integrationEndpoints}</p>
             <ul className="integration-endpoints">
-              {status?.endpoints &&
-                Object.entries(status.endpoints).map(([key, url]) => (
-                  <li key={key}>
-                    <code>{key}</code>
-                    <span>{url}</span>
-                  </li>
-                ))}
+              {endpoints.map((ep) => (
+                <li key={`${ep.method}-${ep.name}`}>
+                  <code>{ep.method}</code>
+                  <code>{ep.name}</code>
+                  <span>{ep.url}</span>
+                </li>
+              ))}
             </ul>
           </div>
 

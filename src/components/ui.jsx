@@ -125,7 +125,11 @@ export function ChartTooltipTraffic({ active, payload, label }) {
   return (
     <div className="chart-tooltip chart-tooltip-themed px-3 py-2.5 shadow-lg">
       <p className="text-xs text-[var(--text-muted)]">{label}</p>
-      <p className="text-sm font-semibold text-emerald-500">{payload[0].value} kisi</p>
+      {payload.map((p) => (
+        <p key={p.dataKey} className="text-sm font-semibold" style={{ color: p.color || "var(--text-primary)" }}>
+          {p.name || p.dataKey}: {p.value}
+        </p>
+      ))}
     </div>
   );
 }

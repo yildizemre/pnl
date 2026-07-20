@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 ROLE_MODULES: dict[str, list[str]] = {
-    "admin": ["ana", "bildirimler", "mes", "urun", "raporlar", "uyelik", "ayarlar"],
+    "admin": ["ana", "bildirimler", "mes", "raporlar", "uyelik", "ayarlar"],
     "isg": ["ana", "bildirimler", "raporlar", "ayarlar"],
-    "uretim_muduru": ["ana", "mes", "urun", "raporlar", "ayarlar"],
+    "uretim_muduru": ["ana", "mes", "raporlar", "ayarlar"],
     "operator": ["ana", "bildirimler", "ayarlar"],
-    "user": ["ana", "bildirimler", "mes", "urun", "raporlar", "ayarlar"],
+    "user": ["ana", "bildirimler", "mes", "raporlar", "ayarlar"],
 }
 
 ROLE_LABELS = {
