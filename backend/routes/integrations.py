@@ -21,6 +21,7 @@ from store import (
     get_notification,
     heartbeat_active,
     ingest_mes_ticks,
+    ingest_sayim_ticks,
     list_notifications,
     mes_productivity_for_user,
     record_heartbeat,
@@ -164,6 +165,50 @@ def integration_mes_tick(body: MesTickIn, user: dict = Depends(get_api_user)):
     )
     _touch_ai(user["id"], body.camera_id)
     return result
+
+
+class SayimStationIn(BaseModel):
+    station_id: str = Field(..., min_length=1, max_length=64)
+    station_name: str | None = None
+    ad: str | None = None
+    hat: str | None = None
+    kamera: str | None = None
+    count: int = Field(default=1, ge=0, le=10000)
+    cycle_seconds: float | None = Field(default=None, ge=0, le=3600)
+    beklenen: int | None = None
+
+
+class SayimTickIn(BaseModel):
+    """YOLO her sayımda veya periyodik batch gönderir. cycle_seconds = önceki sayımdan bu yana süre."""
+    camera_id: str = ""
+    stations: list[SayimStationIn] = Field(..., min_length=1, max_length=100)
+    observed_at: str | None = None
+
+
+@router.post("/sayim/tick")
+def integration_sayim_tick(body: SayimTickIn, user: dict = Depends(get_api_user)):
+    stations = [s.model_dump() for s in body.stations]
+    ts = None
+    if body.observed_at:
+        try:
+            ts = datetime.fromisoformat(body.observed_at.replace("Z", "+00:00"))
+        except ValueError:
+            ts = None
+    result = ingest_sayim_ticks(user["id"], stations, camera_id=body.camera_id, ts=ts)
+    _touch_ai(user["id"], body.camera_id or None)
+    return result
+
+
+@router.get("/sayim/productivity")
+def integration_sayim_productivity(
+    user: dict = Depends(get_api_user),
+    tarih: str | None = Query(default=None),
+    period: str = Query(default="saat", pattern="^(saat|gun|ay)$"),
+):
+    from store import panel_product_counts
+
+    key = tarih or datetime.now().date().isoformat()
+    return {"ok": True, **panel_product_counts(key, period, user_id=user["id"])}
 
 
 @router.get("/notifications")

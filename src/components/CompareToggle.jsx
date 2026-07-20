@@ -12,12 +12,14 @@ function Delta({ pct, invert = false }) {
   );
 }
 
-export default function CompareToggle({ value, onChange, compare }) {
+export default function CompareToggle({ value, onChange, compare, hats = [], hatA, hatB, onHatA, onHatB }) {
   const { t, locale } = useLocale();
   const opts = [
     { id: "", label: t.compareOff },
     { id: "bugun_dun", label: t.compareVsYesterday },
     { id: "hafta", label: t.compareVsLastWeek },
+    { id: "ay", label: t.compareVsLastMonth },
+    { id: "hat", label: t.compareHatVsHat },
   ];
 
   const summary = compare?.summary;
@@ -27,14 +29,19 @@ export default function CompareToggle({ value, onChange, compare }) {
         { key: "isg", label: t.kpiIsgIhlal, pct: summary.isg_ihlaller?.change_pct, invert: true },
         { key: "personel", label: t.aktifPersonel, pct: summary.aktif_personel?.change_pct },
         { key: "bildirim", label: t.bildirim, pct: summary.bildirim?.change_pct, invert: true },
-      ]
+        { key: "sayim", label: t.toplamSayim || t.gunlukToplamSayim, pct: summary.urun_sayim?.change_pct },
+      ].filter((c) => c.pct != null)
     : [];
 
   const periodHint = value === "bugun_dun"
     ? (locale === "EN" ? "vs yesterday" : "düne göre")
     : value === "hafta"
       ? (locale === "EN" ? "vs last week" : "geçen haftaya göre")
-      : "";
+      : value === "ay"
+        ? (locale === "EN" ? "vs last month" : "geçen aya göre")
+        : value === "hat"
+          ? `${hatA || "A"} vs ${hatB || "B"}`
+          : "";
 
   return (
     <div className="compare-bar">
@@ -56,7 +63,18 @@ export default function CompareToggle({ value, onChange, compare }) {
           ))}
         </div>
       </div>
-      {summary && (
+      {value === "hat" && hats.length > 0 && (
+        <div className="compare-hat-row">
+          <select className="input-dark" value={hatA || ""} onChange={(e) => onHatA?.(e.target.value)}>
+            {hats.map((h) => <option key={`ha-${h}`} value={h}>{h}</option>)}
+          </select>
+          <span className="compare-hat-vs">vs</span>
+          <select className="input-dark" value={hatB || ""} onChange={(e) => onHatB?.(e.target.value)}>
+            {hats.map((h) => <option key={`hb-${h}`} value={h}>{h}</option>)}
+          </select>
+        </div>
+      )}
+      {summary && value && value !== "hat" && (
         <div className="compare-chips" aria-live="polite">
           <span className="compare-chips-hint">{periodHint}</span>
           {chips.map((c) => (
@@ -65,6 +83,23 @@ export default function CompareToggle({ value, onChange, compare }) {
               <Delta pct={c.pct} invert={c.invert} />
             </span>
           ))}
+        </div>
+      )}
+      {value === "hat" && compare?.current && (
+        <div className="compare-chips" aria-live="polite">
+          <span className="compare-chips-hint">{periodHint}</span>
+          <span className="compare-chip">
+            <span className="compare-chip-lbl">{compare.hat_a || hatA}</span>
+            <strong>{Number(compare.current.value).toLocaleString(locale === "EN" ? "en" : "tr")}</strong>
+          </span>
+          <span className="compare-chip">
+            <span className="compare-chip-lbl">{compare.hat_b || hatB}</span>
+            <strong>{Number(compare.previous.value).toLocaleString(locale === "EN" ? "en" : "tr")}</strong>
+          </span>
+          <span className="compare-chip">
+            <span className="compare-chip-lbl">Δ</span>
+            <Delta pct={compare.change_pct} />
+          </span>
         </div>
       )}
     </div>

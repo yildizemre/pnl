@@ -66,33 +66,16 @@ export default function MesView({ data }) {
   const [selectedId, setSelectedId] = useState(null);
   const [p, setP] = useState(data.productivity);
   const [prevMap, setPrevMap] = useState({});
+  const [exporting, setExporting] = useState(null);
 
   useEffect(() => {
     if (!date) return;
-    api.mesProductivity(date).then(setP).catch(() => setP(data.productivity));
-  }, [date, data.productivity]);
+    api.mesProductivity(date, period).then(setP).catch(() => setP(data.productivity));
+  }, [date, period, data.productivity]);
 
   useEffect(() => {
-    if (!date || period !== "hafta" || !dates.length) {
-      setPrevMap({});
-      return;
-    }
-    const idx = dates.indexOf(date);
-    const prevDate = idx >= 0 && dates[idx + 1] ? dates[idx + 1] : null;
-    if (!prevDate) {
-      setPrevMap({});
-      return;
-    }
-    api.mesProductivity(prevDate)
-      .then((res) => {
-        const map = {};
-        (res.personeller || []).forEach((person) => {
-          map[person.id] = person.presence_pct ?? null;
-        });
-        setPrevMap(map);
-      })
-      .catch(() => setPrevMap({}));
-  }, [date, period, dates]);
+    setPrevMap({});
+  }, [date, period]);
 
   const allPersonel = p?.personeller || [];
 
@@ -140,12 +123,38 @@ export default function MesView({ data }) {
     ? (filtered.reduce((a, x) => a + (x.presence_pct || 0), 0) / filtered.length).toFixed(1)
     : "—";
 
-  const periodMult = { gun: 1, hafta: 5, ay: 22, yil: 250 }[period] || 1;
+  const periodMult = 1;
 
   const totalInefficient = useMemo(() => {
     const daySum = filtered.reduce((a, x) => a + (Number(x.yok_saat) || 0), 0);
-    return Math.round(daySum * periodMult * 10) / 10;
-  }, [filtered, periodMult]);
+    return Math.round(daySum * 10) / 10;
+  }, [filtered]);
+
+  const gunluk = p?.gunluk || [];
+  const periodLabel = p?.baslangic && p?.bitis && p.baslangic !== p.bitis
+    ? `${p.baslangic} → ${p.bitis}`
+    : (t[`period_${period}`] || period);
+
+  const downloadMes = async (format) => {
+    setExporting(format);
+    try {
+      const blob = await api.exportReport(t.personelPresenceTablo, format, {
+        kind: "mes",
+        period,
+        tarih: date,
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `mes_${period}_${date}.${format === "xlsx" ? "xlsx" : "pdf"}`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      alert(e.message);
+    } finally {
+      setExporting(null);
+    }
+  };
 
   const worst = worst3[0] || null;
 
@@ -154,7 +163,7 @@ export default function MesView({ data }) {
     [filtered]
   );
 
-  const showTrend = period === "hafta";
+  const showTrend = false;
   const hasMesModule = user?.moduller?.includes("mes");
   const hasMesData = allPersonel.length > 0;
 
@@ -213,7 +222,7 @@ export default function MesView({ data }) {
         <StatCard
           title={t.toplamVerimsizSure}
           value={formatHours(totalInefficient)}
-          subtitle={t[`period_${period}`] || period}
+          subtitle={periodLabel}
           icon={Clock}
           accent="orange"
         />
@@ -280,7 +289,36 @@ export default function MesView({ data }) {
             {t[`period_${id}`]}
           </button>
         ))}
+        <button type="button" className="btn-secondary mes-export-btn" disabled={!!exporting} onClick={() => downloadMes("xlsx")}>
+          {exporting === "xlsx" ? "…" : t.raporExportExcel}
+        </button>
+        <button type="button" className="btn-secondary mes-export-btn" disabled={!!exporting} onClick={() => downloadMes("pdf")}>
+          {exporting === "pdf" ? "…" : t.raporExportPdf}
+        </button>
       </div>
+
+      {gunluk.length > 1 && (
+        <Panel title={t.mesDonemTablo} subtitle={periodLabel} flush>
+          <DataTable minWidth="520px">
+            <thead>
+              <tr>
+                <th>{t.tarih}</th>
+                <th>{t.ortVerimli}</th>
+                <th>{t.aktifPersonel}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {gunluk.map((row) => (
+                <tr key={row.tarih}>
+                  <td>{row.tarih}</td>
+                  <td>%{row.ortalama_yerinde ?? "—"}</td>
+                  <td>{row.aktif_personel ?? 0}</td>
+                </tr>
+              ))}
+            </tbody>
+          </DataTable>
+        </Panel>
+      )}
 
       <div className="mes-tabs" role="tablist">
         {TABS.map((id) => (

@@ -6,6 +6,7 @@ import { translateSeviye } from "../../i18n/helpers";
 import { eventColor, eventLabel } from "../../data/notificationTypes";
 import { formatMetaTime, metaRows } from "../../lib/notificationMeta";
 import NotificationFeedback from "./NotificationFeedback";
+import NotificationActionPanel from "./NotificationActionPanel";
 
 export default function NotificationDetailModal({ item, subtitle, onClose, onUpdated }) {
   const { t, locale } = useLocale();
@@ -86,6 +87,7 @@ export default function NotificationDetailModal({ item, subtitle, onClose, onUpd
             {item.modul && <span><MapPin className="h-3.5 w-3.5" />{item.modul}</span>}
           </div>
           <NotificationFeedback item={item} onUpdated={onUpdated} />
+          <NotificationActionPanel item={item} onUpdated={onUpdated} />
         </div>
       </div>
     </div>

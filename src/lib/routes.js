@@ -4,6 +4,8 @@ export const PAGE_ROUTES = {
   ana: { path: "/", titleKey: "anaSayfa" },
   bildirimler: { path: "/notifications", titleKey: "bildirimler" },
   mes: { path: "/mes", titleKey: "personel" },
+  sayim: { path: "/sayim", titleKey: "sayim" },
+  kpi: { path: "/kpi", titleKey: "kpiStudio" },
   urun: { path: "/products", titleKey: "urun" },
   raporlar: { path: "/reports", titleKey: "raporlar" },
   uyelik: { path: "/users", titleKey: "uyelik" },

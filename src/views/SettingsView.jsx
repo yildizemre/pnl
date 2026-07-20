@@ -6,7 +6,6 @@ import { useLocale } from "../context/LocaleContext";
 import { useTheme } from "../context/ThemeContext";
 import { ROLE_LABELS_EN, ROLE_LABELS_TR } from "../lib/roles";
 import { Panel } from "../components/ui";
-import IntegrationPanel from "../components/settings/IntegrationPanel";
 
 export default function SettingsView({ onRefresh }) {
   const { t, locale } = useLocale();
@@ -96,8 +95,6 @@ export default function SettingsView({ onRefresh }) {
           {theme === "dark" ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
         </button>
       </Panel>
-
-      <IntegrationPanel onTestComplete={() => onRefresh?.()} />
 
       <Panel title={t.sifreDegistir} subtitle={t.hesapGuvenligi}>
         <form onSubmit={changePassword} className="max-w-md space-y-4">

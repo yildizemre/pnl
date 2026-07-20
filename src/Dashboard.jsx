@@ -5,8 +5,10 @@ import {
   FileBarChart,
   Home,
   Lock,
+  Package,
   Settings,
   ShieldAlert,
+  Sparkles,
   TrendingUp,
   Users,
   X,
@@ -15,7 +17,7 @@ import HypeLogo from "./components/HypeLogo";
 import { api } from "./api";
 import { useAuth } from "./hooks/useAuth";
 import { useLocale } from "./context/LocaleContext";
-import { PANEL_MODULES } from "./lib/modules";
+import { NAV_SECTIONS, PANEL_MODULES } from "./lib/modules";
 import HeaderBar from "./components/HeaderBar";
 import OnboardingTour from "./components/OnboardingTour";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
@@ -23,6 +25,8 @@ import { useWebSocket } from "./hooks/useWebSocket";
 import HomeView from "./views/HomeView";
 import NotificationsView from "./views/NotificationsView";
 import MesView from "./views/MesView";
+import SayimView from "./views/SayimView";
+import KpiStudioView from "./views/KpiStudioView";
 import ReportsView from "./views/ReportsView";
 import SettingsView from "./views/SettingsView";
 import AdminUsersView from "./views/AdminUsersView";
@@ -31,12 +35,23 @@ import { DashboardSkeleton } from "./components/Skeleton";
 import NotificationToast from "./components/notifications/NotificationToast";
 import NotificationDetailModal from "./components/notifications/NotificationDetailModal";
 
-const ICONS = { ana: Home, bildirimler: ShieldAlert, mes: TrendingUp, raporlar: FileBarChart, uyelik: Users, ayarlar: Settings };
+const ICONS = {
+  ana: Home,
+  bildirimler: ShieldAlert,
+  mes: TrendingUp,
+  sayim: Package,
+  kpi: Sparkles,
+  raporlar: FileBarChart,
+  uyelik: Users,
+  ayarlar: Settings,
+};
 
 const VIEW_MAP = {
   ana: HomeView,
   bildirimler: NotificationsView,
   mes: MesView,
+  sayim: SayimView,
+  kpi: KpiStudioView,
   raporlar: ReportsView,
   uyelik: AdminUsersView,
 };
@@ -45,6 +60,8 @@ const MENU_LABELS = {
   ana: "anaSayfa",
   bildirimler: "bildirimler",
   mes: "personel",
+  sayim: "sayim",
+  kpi: "kpiStudio",
   raporlar: "raporlar",
   uyelik: "uyelik",
   ayarlar: "ayarlar",
@@ -93,30 +110,46 @@ export default function Dashboard() {
   const isAdmin = user?.rol === "admin" && !isImpersonating;
 
   const allowedModules = useMemo(() => {
-    const list = (user?.moduller || ["ana", "bildirimler", "mes", "raporlar", "ayarlar"]).filter(
+    const list = (user?.moduller || ["ana", "bildirimler", "mes", "sayim", "kpi", "raporlar", "ayarlar"]).filter(
       (id) => id !== "urun"
     );
+    if (!list.includes("sayim") && list.includes("mes")) {
+      const i = list.indexOf("mes");
+      list.splice(i + 1, 0, "sayim");
+    }
+    if (!list.includes("kpi") && (list.includes("sayim") || list.includes("raporlar"))) {
+      const i = list.indexOf("sayim");
+      list.splice(i >= 0 ? i + 1 : list.indexOf("raporlar"), 0, "kpi");
+    }
     if (isAdmin && !list.includes("uyelik")) list.push("uyelik");
     return list;
   }, [user?.moduller, isAdmin]);
 
   const menu = useMemo(() => {
-    const items = PANEL_MODULES.map((m) => ({
-      id: m.id,
-      label: t[MENU_LABELS[m.id]] || m.id,
-      icon: ICONS[m.id] || Home,
-      locked: !allowedModules.includes(m.id),
-    }));
+    const byId = Object.fromEntries(
+      PANEL_MODULES.map((m) => [
+        m.id,
+        {
+          id: m.id,
+          label: t[MENU_LABELS[m.id]] || m.id,
+          icon: ICONS[m.id] || Home,
+          locked: !allowedModules.includes(m.id),
+        },
+      ])
+    );
     if (isAdmin) {
-      items.splice(items.length - 1, 0, {
-        id: "uyelik",
-        label: t.uyelik,
-        icon: Users,
-        locked: false,
-      });
+      byId.uyelik = { id: "uyelik", label: t.uyelik, icon: Users, locked: false };
     }
-    return items;
+    return byId;
   }, [allowedModules, isAdmin, t]);
+
+  const menuSections = useMemo(() => {
+    return NAV_SECTIONS.map((sec) => ({
+      ...sec,
+      label: sec.labelKey ? t[sec.labelKey] : null,
+      items: sec.modules.map((id) => menu[id]).filter(Boolean),
+    })).filter((sec) => sec.items.length > 0);
+  }, [menu, t]);
 
   const navigate = useCallback(
     (id) => {
@@ -138,7 +171,7 @@ export default function Dashboard() {
 
   const loadData = useCallback(async () => {
     try {
-      const res = await api.dashboardAll(compare || undefined);
+      const res = await api.dashboardAll(compare && compare !== "hat" ? compare : undefined);
       setData(res);
       if (res.summary) {
         setLive((l) => ({
@@ -262,6 +295,8 @@ export default function Dashboard() {
       uyelik: t.uyelik,
       bildirimler: t.bildirimler,
       mes: t.personel,
+      sayim: t.sayim,
+      kpi: t.kpiStudio,
       raporlar: t.raporlar,
     };
     const items = [{ id: "ana", label: t.anaSayfa, onClick: () => navigate("ana") }];
@@ -298,16 +333,18 @@ export default function Dashboard() {
   usePageMeta(activeMenu, t, locale);
 
   useEffect(() => {
-    const item = menu.find((m) => m.id === activeMenu);
+    const item = menu[activeMenu];
     if (!item || item.locked) {
       navigate("ana");
     }
   }, [menu, activeMenu, navigate]);
 
   const View = VIEW_MAP[activeMenu];
-  const current = menu.find((m) => m.id === activeMenu && !m.locked);
+  const current = menu[activeMenu] && !menu[activeMenu].locked ? menu[activeMenu] : null;
   const titles = {
     ana: { title: t.anaSayfa, sub: user?.kurulum || t.adminPanel },
+    sayim: { title: t.sayim, sub: t.sayimAlt || "" },
+    kpi: { title: t.kpiStudio, sub: t.kpiStudioAlt || "" },
     ayarlar: { title: t.ayarlar, sub: "" },
     uyelik: { title: t.uyelik, sub: "" },
   };
@@ -337,40 +374,52 @@ export default function Dashboard() {
           <HypeLogo centered className="h-8 w-auto max-w-[152px]" />
           <p className="sidebar-tagline w-full text-center" lang="en">{t.sidebarTagline}</p>
         </div>
-        <nav className="flex-1 space-y-1 overflow-y-auto overflow-x-hidden px-2 py-4 lg:px-3">
-          {menu.map(({ id, label, icon: Icon, locked }) => {
-            const unreadBadge = !locked && id === "bildirimler"
-              ? (live?.unread ?? data?.summary?.bildirim_sayisi ?? 0)
-              : 0;
-            return (
-              <button
-                key={id}
-                type="button"
-                onClick={() => navigate(id)}
-                data-label={label}
-                title={locked ? t.erisimKisitli : label}
-                className={`nav-item flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-sm font-medium transition ${
-                  locked
-                    ? "nav-item--locked"
-                    : activeMenu === id
-                      ? "nav-active"
-                      : "text-[var(--text-muted)] border-transparent hover:bg-[var(--bg-hover)]"
-                }`}
-              >
-                <span className="relative shrink-0">
-                  <Icon className="h-4 w-4" />
-                  {unreadBadge > 0 && (
-                    <span className="sidebar-badge">{unreadBadge > 9 ? "9+" : unreadBadge}</span>
-                  )}
-                </span>
-                <span className="nav-item-label min-w-0 flex-1 text-left">
-                  <span className="block truncate">{label}</span>
-                  {locked && <span className="nav-lock-hint">{t.erisimKisitli}</span>}
-                </span>
-                {locked && <Lock className="h-3.5 w-3.5 shrink-0 opacity-70" />}
-              </button>
-            );
-          })}
+        <nav className="flex-1 space-y-4 overflow-y-auto overflow-x-hidden px-2 py-4 lg:px-3">
+          {menuSections.map((sec) => (
+            <div key={sec.id} className="nav-section">
+              {sec.label && (
+                <div className="nav-section-head">
+                  <span className="nav-section-label">{sec.label}</span>
+                  <span className="nav-section-line" aria-hidden />
+                </div>
+              )}
+              <div className="space-y-1">
+                {sec.items.map(({ id, label, icon: Icon, locked }) => {
+                  const unreadBadge = !locked && id === "bildirimler"
+                    ? (live?.unread ?? data?.summary?.bildirim_sayisi ?? 0)
+                    : 0;
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => navigate(id)}
+                      data-label={label}
+                      title={locked ? t.erisimKisitli : label}
+                      className={`nav-item flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-sm font-medium transition ${
+                        locked
+                          ? "nav-item--locked"
+                          : activeMenu === id
+                            ? "nav-active"
+                            : "text-[var(--text-muted)] border-transparent hover:bg-[var(--bg-hover)]"
+                      }`}
+                    >
+                      <span className="relative shrink-0">
+                        <Icon className="h-4 w-4" />
+                        {unreadBadge > 0 && (
+                          <span className="sidebar-badge">{unreadBadge > 9 ? "9+" : unreadBadge}</span>
+                        )}
+                      </span>
+                      <span className="nav-item-label min-w-0 flex-1 text-left">
+                        <span className="block truncate">{label}</span>
+                        {locked && <span className="nav-lock-hint">{t.erisimKisitli}</span>}
+                      </span>
+                      {locked && <Lock className="h-3.5 w-3.5 shrink-0 opacity-70" />}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
         </nav>
         <div className="border-t border-[var(--border)] p-3">
           <div className="flex items-center justify-between rounded-lg border border-[var(--border)] px-3 py-2 text-[11px] text-[var(--text-muted)]">
@@ -433,6 +482,8 @@ export default function Dashboard() {
                   data={data}
                   compare={compare}
                   onCompareChange={setCompare}
+                  onNavigate={navigate}
+                  onNotificationOpen={handleNotificationOpen}
                 />
               )}
               {activeMenu === "bildirimler" && (

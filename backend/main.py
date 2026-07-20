@@ -35,6 +35,7 @@ from store import (
     list_users,
     mark_all_notifications_read,
     mark_notification_read,
+    set_notification_action,
     set_notification_feedback,
     get_notification,
     record_heartbeat,
@@ -47,6 +48,8 @@ from store import (
     get_daily_metric,
     get_mes_presence,
     mes_productivity_for_user,
+    mes_productivity_period,
+    build_isg_weekly_summary,
     save_mes_presence,
     metrics_trend,
     notification_stats_for_date,
@@ -84,7 +87,7 @@ from mock_data import (
     TRAFFIC_24H,
     get_compare,
 )
-from reports_export import build_pdf, build_xlsx
+from reports_export import build_isg_weekly_pdf, build_pdf, build_workbook_multi, build_xlsx
 from roles import ROLE_LABELS
 from ws_manager import manager
 
@@ -181,6 +184,24 @@ class LayoutBody(BaseModel):
     onboarding_done: Optional[bool] = None
 
 
+class KpiDefinitionBody(BaseModel):
+    source: str = "isg"
+    field: str = "bildirim_adet"
+    agg: Optional[str] = "count"
+    dimension: Optional[str] = "none"
+    filter: Optional[dict] = None
+    period: Optional[str] = "gun"
+    name: Optional[str] = None
+    format: Optional[str] = None
+    pin_home: Optional[bool] = False
+
+
+class KpiSaveBody(BaseModel):
+    """custom_kpis listesini layout içine yazar (merge)."""
+    custom_kpis: List[dict]
+    home_kpi_ids: Optional[List[str]] = None
+
+
 class ApiKeyCreate(BaseModel):
     label: str = "Entegrasyon"
 
@@ -190,7 +211,12 @@ class NotificationReadBody(BaseModel):
 
 
 class FeedbackBody(BaseModel):
-    label: str  # evet | hayir
+    label: str
+
+
+class NotificationActionBody(BaseModel):
+    aksiyon_durum: Optional[str] = None  # acik | kapandi | yanlis_alarm | egitim
+    sorumlu: Optional[str] = None
 
 
 class FloorPlanBody(BaseModel):
@@ -398,6 +424,65 @@ def meta_roles():
 def save_preferences(body: LayoutBody, user: dict = Depends(get_current_user)):
     update_user_layout(user["id"], body.dashboard_layout, body.onboarding_done)
     return {"ok": True}
+
+
+@app.get("/api/kpi/catalog")
+def kpi_catalog(_: dict = Depends(get_current_user)):
+    from services.kpi_engine import get_catalog
+
+    return get_catalog()
+
+
+@app.post("/api/kpi/query")
+def kpi_query(body: KpiDefinitionBody, tarih: Optional[str] = None, user: dict = Depends(get_current_user)):
+    from services.kpi_engine import evaluate_kpi
+
+    definition = body.model_dump(exclude_none=True)
+    return evaluate_kpi(user["id"], definition, tarih or date.today().isoformat())
+
+
+@app.post("/api/kpi/compare")
+def kpi_compare(
+    body: KpiDefinitionBody,
+    mode: str = Query("bugun_dun", pattern="^(bugun_dun|hafta|ay|hat)$"),
+    tarih: Optional[str] = None,
+    hat_a: Optional[str] = None,
+    hat_b: Optional[str] = None,
+    user: dict = Depends(get_current_user),
+):
+    from services.kpi_engine import compare_kpi
+
+    return compare_kpi(
+        user["id"],
+        body.model_dump(exclude_none=True),
+        mode=mode,
+        tarih=tarih or date.today().isoformat(),
+        hat_a=hat_a,
+        hat_b=hat_b,
+    )
+
+
+@app.get("/api/kpi/compare-summary")
+def kpi_compare_summary(
+    mode: str = Query("bugun_dun", pattern="^(bugun_dun|hafta|ay)$"),
+    tarih: Optional[str] = None,
+    user: dict = Depends(get_current_user),
+):
+    from services.kpi_engine import live_compare_summary
+
+    return live_compare_summary(user["id"], mode, tarih or date.today().isoformat())
+
+
+@app.put("/api/kpi/custom")
+def kpi_save_custom(body: KpiSaveBody, user: dict = Depends(get_current_user)):
+    u = find_user_by_id(user["id"])
+    pub = user_public(u)
+    layout = dict(pub.get("dashboard_layout") or {})
+    layout["custom_kpis"] = body.custom_kpis
+    if body.home_kpi_ids is not None:
+        layout["home_kpi_ids"] = body.home_kpi_ids
+    update_user_layout(user["id"], layout)
+    return {"ok": True, "dashboard_layout": layout}
 
 
 @app.get("/api/admin/users")
@@ -684,6 +769,19 @@ def notification_feedback(notification_id: int, body: FeedbackBody, user: dict =
     return {"ok": True, "item": item, "training": item.get("feedback"), "unread": count_unread(user["id"])}
 
 
+@app.patch("/api/notifications/{notification_id}/action")
+def notification_action(notification_id: int, body: NotificationActionBody, user: dict = Depends(get_current_user)):
+    item = set_notification_action(
+        notification_id,
+        user["id"],
+        aksiyon_durum=body.aksiyon_durum,
+        sorumlu=body.sorumlu,
+    )
+    if not item:
+        raise HTTPException(400, "Aksiyon güncellenemedi")
+    return {"ok": True, "item": item, "unread": count_unread(user["id"])}
+
+
 @app.patch("/api/notifications/read-all")
 def read_all_notifications(user: dict = Depends(get_current_user)):
     n = mark_all_notifications_read(user["id"])
@@ -800,17 +898,26 @@ def productivity():
 
 
 @app.get("/api/counts/products")
-def product_counts(tarih: Optional[str] = None):
-    key = tarih or AVAILABLE_DATES[0]
-    return panel_product_counts(key)
+@app.get("/api/counts/sayim")
+def product_counts(
+    tarih: Optional[str] = None,
+    period: Optional[str] = Query("saat", pattern="^(saat|gun|ay)$"),
+    user: dict = Depends(get_current_user),
+):
+    key = tarih or date.today().isoformat()
+    return panel_product_counts(key, period or "saat", user_id=user["id"])
 
 
 @app.get("/api/mes/productivity")
-def mes_productivity(tarih: Optional[str] = None, user: dict = Depends(get_current_user)):
+def mes_productivity(
+    tarih: Optional[str] = None,
+    period: Optional[str] = Query("gun", pattern="^(gun|hafta|ay|yil)$"),
+    user: dict = Depends(get_current_user),
+):
     key = tarih or date.today().isoformat()
-    base = mes_productivity_for_user(user["id"], key)
+    base = mes_productivity_period(user["id"], key, period or "gun")
     k = get_daily_metric(user["id"], key)
-    if k:
+    if k and base.get("period") == "gun":
         base["ortalama_verimlilik"] = float(k["verimlilik"]) if isinstance(k.get("verimlilik"), str) else k["verimlilik"]
     return base
 
@@ -869,28 +976,192 @@ def daily_email_mock(user: dict = Depends(get_current_user)):
 
 @app.get("/api/reports/export")
 def export_report(
-    title: str = Query(...),
-    format: str = Query("pdf", pattern="^(pdf|xlsx)$"),
+    title: str = Query("HypeVision Rapor"),
+    format: str = Query("pdf", pattern="^(pdf|xlsx|csv)$"),
+    kind: str = Query("isg_haftalik", pattern="^(isg_haftalik|mes|bildirimler|sayim)$"),
+    tarih: Optional[str] = None,
+    period: Optional[str] = Query("hafta", pattern="^(saat|gun|hafta|ay|yil)$"),
     user: dict = Depends(get_current_user),
 ):
+    uid = user["id"]
+    key = tarih or date.today().isoformat()
+    meta = {"kurulum": user.get("kurulum", ""), "period": period or "hafta"}
+    fname_base = title[:40].replace(" ", "_") or "hypevision"
+
+    if kind == "sayim":
+        sayim_period = period if period in ("saat", "gun", "ay") else "saat"
+        sayim = panel_product_counts(key, sayim_period, user_id=uid)
+        meta["baslangic"] = sayim.get("baslangic")
+        meta["bitis"] = sayim.get("bitis")
+        meta["period"] = sayim_period
+        ist_rows = [
+            {
+                "istasyon": s.get("ad"),
+                "id": s.get("id"),
+                "hat": s.get("hat"),
+                "kamera": s.get("kamera"),
+                "adet": s.get("adet"),
+                "beklenen": s.get("beklenen"),
+                "verimlilik_%": s.get("verimlilik_pct"),
+                "ort_cycle_sn": s.get("ort_cycle_sn"),
+            }
+            for s in (sayim.get("istasyonlar") or [])
+        ]
+        hat_rows = [
+            {
+                "hat": h.get("hat"),
+                "adet": h.get("adet"),
+                "beklenen": h.get("beklenen"),
+                "verimlilik_%": h.get("verimlilik_pct"),
+                "istasyon": h.get("istasyon_sayisi"),
+                "ort_cycle_sn": h.get("ort_cycle_sn"),
+            }
+            for h in (sayim.get("hatlar") or [])
+        ]
+        if format == "csv":
+            import csv
+            import io as _io
+
+            buf = _io.StringIO()
+            w = csv.DictWriter(buf, fieldnames=list(ist_rows[0].keys()) if ist_rows else ["istasyon", "adet"])
+            w.writeheader()
+            for row in ist_rows:
+                w.writerow(row)
+            data = buf.getvalue().encode("utf-8-sig")
+            return Response(
+                data,
+                media_type="text/csv; charset=utf-8",
+                headers={"Content-Disposition": f'attachment; filename="sayim_{sayim_period}_{key}.csv"'},
+            )
+        if format == "xlsx":
+            sheets = [
+                ("Istasyonlar", ist_rows),
+                ("Hatlar", hat_rows),
+                ("Saatlik", sayim.get("saatlik") or []),
+                ("Gunluk", sayim.get("gunluk_trend") or []),
+            ]
+            data = build_workbook_multi(sheets, title=f"Sayim {sayim_period}")
+            return Response(
+                data,
+                media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                headers={"Content-Disposition": f'attachment; filename="sayim_{sayim_period}_{key}.xlsx"'},
+            )
+        data = build_pdf(f"Sayim ({sayim_period})", ist_rows, meta)
+        return Response(
+            data,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="sayim_{sayim_period}_{key}.pdf"'},
+        )
+
+    if kind == "isg_haftalik":
+        summary = build_isg_weekly_summary(uid, key)
+        meta["baslangic"] = summary.get("baslangic")
+        meta["bitis"] = summary.get("bitis")
+        if format == "xlsx":
+            sheets = [
+                ("Ozet", [
+                    {"alan": "Toplam", "deger": summary.get("toplam")},
+                    {"alan": "Kritik", "deger": summary.get("kritik")},
+                    {"alan": "Acik", "deger": (summary.get("aksiyonlar") or {}).get("acik")},
+                    {"alan": "Kapandi", "deger": (summary.get("aksiyonlar") or {}).get("kapandi")},
+                    {"alan": "Yanlis alarm", "deger": (summary.get("aksiyonlar") or {}).get("yanlis_alarm")},
+                    {"alan": "Egitim", "deger": (summary.get("aksiyonlar") or {}).get("egitim")},
+                ]),
+                ("Gunluk", summary.get("gunluk") or []),
+                ("Kategoriler", summary.get("kategoriler") or []),
+                ("Kameralar", summary.get("kameralar") or []),
+                ("Olaylar", [
+                    {
+                        "tarih": n.get("tarih"),
+                        "zaman": n.get("zaman"),
+                        "kategori": n.get("kategori"),
+                        "baslik": n.get("baslik"),
+                        "kamera": n.get("kamera"),
+                        "seviye": n.get("seviye"),
+                        "aksiyon": n.get("aksiyon_durum"),
+                        "sorumlu": n.get("sorumlu"),
+                    }
+                    for n in (summary.get("olaylar") or [])
+                ]),
+            ]
+            data = build_workbook_multi(sheets, title="Haftalik ISG")
+            return Response(
+                data,
+                media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                headers={"Content-Disposition": f'attachment; filename="isg_haftalik_{key}.xlsx"'},
+            )
+        data = build_isg_weekly_pdf(summary, meta)
+        return Response(
+            data,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="isg_haftalik_{key}.pdf"'},
+        )
+
+    if kind == "mes":
+        mes = mes_productivity_period(uid, key, period or "hafta")
+        rows = [
+            {
+                "personel": p.get("ad"),
+                "id": p.get("id"),
+                "hat": p.get("hat"),
+                "masa": p.get("masa"),
+                "verimlilik_%": p.get("presence_pct"),
+                "verimli_saat": p.get("yerinde_saat"),
+                "verimsiz_saat": p.get("yok_saat"),
+                "gun_sayisi": p.get("gun_sayisi") or 1,
+                "durum": p.get("durum"),
+            }
+            for p in (mes.get("personeller") or [])
+        ]
+        meta["baslangic"] = mes.get("baslangic")
+        meta["bitis"] = mes.get("bitis")
+        meta["period"] = mes.get("period")
+        if format == "xlsx":
+            sheets = [
+                ("Personel", rows),
+                ("Gunluk", mes.get("gunluk") or []),
+            ]
+            data = build_workbook_multi(sheets, title=f"MES {period}")
+            return Response(
+                data,
+                media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                headers={"Content-Disposition": f'attachment; filename="mes_{period}_{key}.xlsx"'},
+            )
+        data = build_pdf(f"MES Verimlilik ({period})", rows, meta)
+        return Response(
+            data,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="mes_{period}_{key}.pdf"'},
+        )
+
+    # bildirimler
+    notifs = list_notifications(uid)
     rows = [
-        {"rapor": "Günlük İSG Özeti", "tarih": "19.05.2026", "durum": "Hazır"},
-        {"rapor": "Haftalık Verimlilik (MES)", "tarih": "18.05.2026", "durum": "Hazır"},
-        {"rapor": title, "tarih": "19.05.2026", "durum": "Hazır"},
+        {
+            "tarih": n.get("tarih"),
+            "zaman": n.get("zaman"),
+            "kategori": n.get("kategori"),
+            "baslik": n.get("baslik"),
+            "kamera": n.get("kamera"),
+            "seviye": n.get("seviye"),
+            "aksiyon": n.get("aksiyon_durum"),
+            "sorumlu": n.get("sorumlu"),
+            "okundu": n.get("okundu"),
+        }
+        for n in notifs
     ]
-    meta = {"kurulum": user.get("kurulum", "")}
     if format == "xlsx":
-        data = build_xlsx(title, rows)
+        data = build_xlsx(title or "Bildirimler", rows, sheet_name="Bildirimler")
         return Response(
             data,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers={"Content-Disposition": f'attachment; filename="{title[:40]}.xlsx"'},
+            headers={"Content-Disposition": f'attachment; filename="bildirimler_{key}.xlsx"'},
         )
-    data = build_pdf(title, rows, meta)
+    data = build_pdf(title or "Bildirimler", rows[:80], meta)
     return Response(
         data,
         media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="{title[:40]}.pdf"'},
+        headers={"Content-Disposition": f'attachment; filename="{fname_base}.pdf"'},
     )
 
 
@@ -906,7 +1177,7 @@ def dashboard_all(
     floor_plan = get_floor_plan(uid)
     today_notifs = notifications_for_date(uid, today)
     all_notifs = list_notifications(uid)
-    pc = panel_product_counts(today)
+    pc = panel_product_counts(today, "saat", user_id=uid)
     mes = mes_productivity_for_user(uid, today)
     k = get_daily_metric(uid, today)
     if k:
@@ -914,13 +1185,24 @@ def dashboard_all(
     # aktif_personel personel listesinden gelir (çok kiracılı)
     traffic = build_traffic_from_notifications(today_notifs)
     system_health = build_system_health(uid, floor_plan, today)
+    compare_payload = None
+    if compare in ("bugun_dun", "hafta", "ay"):
+        try:
+            from services.kpi_engine import live_compare_summary
+
+            compare_payload = live_compare_summary(uid, compare, today)
+        except Exception:
+            compare_payload = get_compare(compare)
+    elif compare:
+        compare_payload = get_compare(compare)
     return {
         "today": today,
         "summary": _summary_for_user(pub, today),
         "dates": AVAILABLE_DATES,
         "traffic": traffic,
-        "compare": get_compare(compare),
-        "compare_presets": ["bugun_dun", "hafta"],
+        "compare": compare_payload,
+        "compare_presets": ["bugun_dun", "hafta", "ay"],
+        "custom_kpis": (pub.get("dashboard_layout") or {}).get("custom_kpis") or [],
         "notifications": all_notifs,
         "today_notifications": today_notifs,
         "notification_categories": NOTIFICATION_CATEGORIES,

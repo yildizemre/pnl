@@ -62,6 +62,8 @@ class NotificationModel(Base):
     okundu = Column(Boolean, default=False)
     meta_json = Column(Text, default="{}")
     feedback = Column(String(16), nullable=True)
+    aksiyon_durum = Column(String(32), default="acik")  # acik | kapandi | yanlis_alarm | egitim
+    sorumlu = Column(String(256), default="")
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     user = relationship("UserModel", back_populates="notifications")
@@ -153,6 +155,29 @@ class MesStaffDayModel(Base):
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
+class SayimBucketModel(Base):
+    """İstasyon × gün × saat sayım kovası — YOLO cycle_seconds ile."""
+
+    __tablename__ = "sayim_buckets"
+    __table_args__ = (
+        UniqueConstraint("user_id", "tarih", "saat", "station_id", name="uq_sayim_bucket"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(String(64), ForeignKey("users.id"), nullable=False, index=True)
+    tarih = Column(String(16), nullable=False, index=True)
+    saat = Column(String(8), nullable=False)  # "10:00"
+    station_id = Column(String(64), nullable=False)
+    ad = Column(String(256), default="")
+    hat = Column(String(128), default="")
+    kamera = Column(String(128), default="")
+    adet = Column(Integer, default=0)
+    cycle_sum_ms = Column(Integer, default=0)
+    cycle_count = Column(Integer, default=0)
+    beklenen = Column(Integer, default=0)
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
 _connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
 engine = create_engine(
     DATABASE_URL,
@@ -177,6 +202,10 @@ def _migrate():
             conn.execute(text("ALTER TABLE notifications ADD COLUMN meta_json TEXT DEFAULT '{}'"))
         if "feedback" not in cols:
             conn.execute(text("ALTER TABLE notifications ADD COLUMN feedback VARCHAR(16)"))
+        if "aksiyon_durum" not in cols:
+            conn.execute(text("ALTER TABLE notifications ADD COLUMN aksiyon_durum VARCHAR(32) DEFAULT 'acik'"))
+        if "sorumlu" not in cols:
+            conn.execute(text("ALTER TABLE notifications ADD COLUMN sorumlu VARCHAR(256) DEFAULT ''"))
         hb_rows = conn.execute(text("PRAGMA table_info(heartbeats)")).fetchall()
         hb_cols = {row[1] for row in hb_rows}
         if "ai_zaman" not in hb_cols:

@@ -572,6 +572,8 @@ def _notif_to_dict(r: NotificationModel) -> dict:
         "okundu": r.okundu,
         "meta": meta,
         "feedback": r.feedback,
+        "aksiyon_durum": getattr(r, "aksiyon_durum", None) or "acik",
+        "sorumlu": getattr(r, "sorumlu", None) or "",
         "created_at": r.created_at.isoformat() if r.created_at else None,
     }
 
@@ -683,6 +685,44 @@ def set_notification_feedback(notification_id: int, user_id: str, label: str) ->
         save_training_sample(item, label)
         row.feedback = label
         row.okundu = True
+        if label == "hayir" and (getattr(row, "aksiyon_durum", None) or "acik") == "acik":
+            row.aksiyon_durum = "yanlis_alarm"
+        db.commit()
+        db.refresh(row)
+        return _notif_to_dict(row)
+
+
+AKSIYON_DURUMLAR = ("acik", "kapandi", "yanlis_alarm", "egitim")
+
+
+def set_notification_action(
+    notification_id: int,
+    user_id: str,
+    *,
+    aksiyon_durum: str | None = None,
+    sorumlu: str | None = None,
+) -> dict | None:
+    with _session() as db:
+        row = (
+            db.query(NotificationModel)
+            .filter(
+                NotificationModel.id == notification_id,
+                (NotificationModel.user_id == user_id) | (NotificationModel.user_id.is_(None)),
+            )
+            .first()
+        )
+        if not row:
+            return None
+        if aksiyon_durum is not None:
+            if aksiyon_durum not in AKSIYON_DURUMLAR:
+                return None
+            row.aksiyon_durum = aksiyon_durum
+            if aksiyon_durum in ("kapandi", "yanlis_alarm", "egitim"):
+                row.okundu = True
+            if aksiyon_durum == "yanlis_alarm" and not row.feedback:
+                row.feedback = "hayir"
+        if sorumlu is not None:
+            row.sorumlu = str(sorumlu).strip()[:256]
         db.commit()
         db.refresh(row)
         return _notif_to_dict(row)
@@ -979,18 +1019,200 @@ def mes_productivity_for_user(user_id: str, tarih: str) -> dict:
         k = get_daily_metric(user_id, tarih) or kpi_for_date(tarih)
         return {
             "tarih": tarih,
+            "period": "gun",
+            "baslangic": tarih,
+            "bitis": tarih,
             "ortalama_verimlilik": k.get("verimlilik") if isinstance(k, dict) else None,
             "ortalama_yerinde": avg,
             "aktif_personel": len(custom),
             "personeller": custom,
+            "gunluk": [
+                {"tarih": tarih, "ortalama_yerinde": avg, "aktif_personel": len(custom)},
+            ],
             "vardiya_trend": [
                 {"vardiya": "sabah", "verimlilik": round(float(k.get("verimlilik") or 90) - 1.2, 1)},
             ],
             "source": "user",
         }
     base = mes_productivity_for_date(tarih)
+    base["period"] = "gun"
+    base["baslangic"] = tarih
+    base["bitis"] = tarih
+    base["gunluk"] = [
+        {
+            "tarih": tarih,
+            "ortalama_yerinde": base.get("ortalama_yerinde"),
+            "aktif_personel": base.get("aktif_personel"),
+        }
+    ]
     base["source"] = "demo"
     return base
+
+
+def _period_day_count(period: str) -> int:
+    return {"gun": 1, "hafta": 7, "ay": 30, "yil": 365}.get(period or "gun", 1)
+
+
+def _date_span(end_iso: str, days: int) -> list[str]:
+    end = date.fromisoformat(end_iso)
+    return [(end - timedelta(days=i)).isoformat() for i in range(days - 1, -1, -1)]
+
+
+def mes_productivity_period(user_id: str, tarih: str, period: str = "gun") -> dict:
+    """Gün / hafta / ay / yıl — mes_staff_day + demo birleşik aggregasyon."""
+    period = (period or "gun").lower()
+    if period not in ("gun", "hafta", "ay", "yil"):
+        period = "gun"
+    if period == "gun":
+        return mes_productivity_for_user(user_id, tarih)
+
+    days = _period_day_count(period)
+    span = _date_span(tarih, days)
+    by_person: dict[str, dict] = {}
+    gunluk = []
+    any_user = False
+
+    for day in span:
+        day_data = get_mes_presence(user_id, day)
+        source = "user"
+        if day_data is None:
+            demo = mes_productivity_for_date(day)
+            day_data = demo.get("personeller") or []
+            source = "demo"
+        else:
+            any_user = True
+        avg = (
+            round(sum(float(p.get("presence_pct") or 0) for p in day_data) / len(day_data), 1)
+            if day_data
+            else None
+        )
+        gunluk.append(
+            {
+                "tarih": day,
+                "ortalama_yerinde": avg,
+                "aktif_personel": len(day_data),
+                "source": source,
+            }
+        )
+        for p in day_data:
+            pid = str(p.get("id") or p.get("person_id") or "")
+            if not pid:
+                continue
+            bucket = by_person.setdefault(
+                pid,
+                {
+                    "id": pid,
+                    "ad": p.get("ad") or pid,
+                    "hat": p.get("hat") or "—",
+                    "masa": p.get("masa") or "—",
+                    "kamera": p.get("kamera") or "—",
+                    "vardiya": p.get("vardiya") or "sabah",
+                    "pct_sum": 0.0,
+                    "days": 0,
+                    "yerinde_dk": 0,
+                    "yok_dk": 0,
+                    "segments": p.get("segments") or [],
+                },
+            )
+            bucket["ad"] = p.get("ad") or bucket["ad"]
+            bucket["hat"] = p.get("hat") or bucket["hat"]
+            bucket["masa"] = p.get("masa") or bucket["masa"]
+            bucket["kamera"] = p.get("kamera") or bucket["kamera"]
+            bucket["pct_sum"] += float(p.get("presence_pct") or 0)
+            bucket["days"] += 1
+            bucket["yerinde_dk"] += int(p.get("yerinde_dk") or 0)
+            bucket["yok_dk"] += int(p.get("yok_dk") or 0)
+            if p.get("segments"):
+                bucket["segments"] = p["segments"]
+
+    personeller = []
+    for b in by_person.values():
+        dcount = max(1, b["days"])
+        pct = round(b["pct_sum"] / dcount, 1)
+        personeller.append(
+            {
+                "id": b["id"],
+                "ad": b["ad"],
+                "hat": b["hat"],
+                "masa": b["masa"],
+                "kamera": b["kamera"],
+                "vardiya": b["vardiya"],
+                "durum": "verimli" if pct >= 85 else "verimsiz",
+                "verimlilik": pct,
+                "presence_pct": pct,
+                "yerinde_dk": b["yerinde_dk"],
+                "yok_dk": b["yok_dk"],
+                "yerinde_saat": round(b["yerinde_dk"] / 60, 1),
+                "yok_saat": round(b["yok_dk"] / 60, 1),
+                "gun_sayisi": b["days"],
+                "segments": b["segments"],
+                "vardiya_baslangic": "08:00",
+                "vardiya_bitis": "17:00",
+            }
+        )
+
+    personeller.sort(key=lambda x: x.get("presence_pct") or 0)
+    avg = (
+        round(sum(float(p["presence_pct"]) for p in personeller) / len(personeller), 1)
+        if personeller
+        else None
+    )
+    k = get_daily_metric(user_id, tarih) or kpi_for_date(tarih)
+    return {
+        "tarih": tarih,
+        "period": period,
+        "baslangic": span[0],
+        "bitis": span[-1],
+        "ortalama_verimlilik": k.get("verimlilik") if isinstance(k, dict) else avg,
+        "ortalama_yerinde": avg,
+        "aktif_personel": len(personeller),
+        "personeller": personeller,
+        "gunluk": gunluk,
+        "vardiya_trend": [
+            {"vardiya": "sabah", "verimlilik": avg if avg is not None else 0},
+        ],
+        "source": "user" if any_user else "demo",
+    }
+
+
+def build_isg_weekly_summary(user_id: str, end_tarih: str | None = None) -> dict:
+    """Son 7 gün İSG özeti — PDF/Excel için."""
+    end = end_tarih or date.today().isoformat()
+    span = _date_span(end, 7)
+    all_n = [n for n in list_notifications(user_id) if n.get("tarih") in set(span)]
+    by_kat: dict[str, int] = {}
+    by_cam: dict[str, int] = {}
+    by_day: dict[str, int] = {d: 0 for d in span}
+    by_aksiyon: dict[str, int] = {"acik": 0, "kapandi": 0, "yanlis_alarm": 0, "egitim": 0}
+    kritik = 0
+    for n in all_n:
+        kat = n.get("kategori") or "Sistem"
+        cam = n.get("kamera") or "—"
+        by_kat[kat] = by_kat.get(kat, 0) + 1
+        by_cam[cam] = by_cam.get(cam, 0) + 1
+        if n.get("tarih") in by_day:
+            by_day[n["tarih"]] += 1
+        if n.get("seviye") == "kritik":
+            kritik += 1
+        st = n.get("aksiyon_durum") or ("kapandi" if n.get("okundu") else "acik")
+        by_aksiyon[st] = by_aksiyon.get(st, 0) + 1
+    return {
+        "baslangic": span[0],
+        "bitis": span[-1],
+        "toplam": len(all_n),
+        "kritik": kritik,
+        "kategoriler": sorted(
+            [{"kategori": k, "adet": v} for k, v in by_kat.items()],
+            key=lambda x: -x["adet"],
+        ),
+        "kameralar": sorted(
+            [{"kamera": k, "adet": v} for k, v in by_cam.items()],
+            key=lambda x: -x["adet"],
+        )[:15],
+        "gunluk": [{"tarih": d, "adet": by_day[d]} for d in span],
+        "aksiyonlar": by_aksiyon,
+        "olaylar": all_n[:200],
+    }
 
 
 def notifications_for_date(user_id: str, tarih: str) -> list[dict]:
@@ -1451,11 +1673,18 @@ def panel_detection_logs(user_id: str, fallback: list[dict]) -> list[dict]:
     return detection_logs_from_notifications(notifs, fallback)
 
 
-def panel_product_counts(tarih: str):
-    from mock_data import PRODUCT_BY_DATE
+def panel_product_counts(tarih: str, period: str = "saat", user_id: str | None = None):
+    """Sayım paneli — istasyon / hat / cycle time. user_id yoksa demo."""
+    from services.sayim_ingest import panel_sayim
 
-    payload = PRODUCT_BY_DATE.get(tarih) or product_for_date(tarih)
-    return {"tarih": tarih, "dates": date_range(90), **payload}
+    uid = user_id or "demo"
+    return panel_sayim(uid, tarih, period or "saat")
+
+
+def ingest_sayim_ticks(user_id: str, stations: list[dict], **kwargs):
+    from services.sayim_ingest import ingest_sayim_ticks as _ingest
+
+    return _ingest(user_id, stations, **kwargs)
 
 
 def metrics_trend(user_id: str, days: int = 30) -> list[dict]:

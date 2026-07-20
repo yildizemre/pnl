@@ -1,8 +1,9 @@
-import { useMemo, useState } from "react";
-import { Plus, Trash2 } from "lucide-react";
-import { Camera, ShieldAlert, TrendingUp, Bell, Users, Activity } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Plus, Trash2, Camera, ShieldAlert, TrendingUp, Bell, Users, Activity, BarChart3 } from "lucide-react";
+import { api } from "../api";
 import { useLocale } from "../context/LocaleContext";
 import { useAuth } from "../hooks/useAuth";
+import { localeTag } from "../i18n/helpers";
 import { StatCard } from "./ui";
 
 const CATALOG = [
@@ -20,7 +21,8 @@ function storageKey(userId) {
   return `hv-home-kpis:${userId || "anon"}`;
 }
 
-function loadIds(userId) {
+function loadIds(userId, layoutIds) {
+  if (Array.isArray(layoutIds) && layoutIds.length) return layoutIds;
   try {
     const raw = localStorage.getItem(storageKey(userId));
     if (!raw) return DEFAULT_IDS;
@@ -91,6 +93,56 @@ function resolveValue(id, ctx) {
   }
 }
 
+function CustomKpiCard({ def, ChangeBadge }) {
+  const { t, locale } = useLocale();
+  const [val, setVal] = useState(null);
+  const [cmp, setCmp] = useState(null);
+
+  useEffect(() => {
+    let alive = true;
+    const definition = {
+      source: def.source,
+      field: def.field,
+      agg: def.agg,
+      dimension: def.dimension || "none",
+      period: def.period || "gun",
+      filter: def.filter || {},
+    };
+    Promise.all([
+      api.kpiQuery(definition),
+      api.kpiCompare(definition, { mode: "bugun_dun" }),
+    ]).then(([q, c]) => {
+      if (!alive) return;
+      setVal(q);
+      setCmp(c);
+    }).catch(() => {});
+    return () => { alive = false; };
+  }, [def.id, def.source, def.field, def.period, def.dimension, def.agg]);
+
+  const format = val?.format || def.format || "int";
+  const n = Number(val?.value ?? 0);
+  const tag = localeTag(locale);
+  const display = format === "pct"
+    ? `%${n.toLocaleString(tag, { maximumFractionDigits: 1 })}`
+    : format === "float"
+      ? n.toLocaleString(tag, { maximumFractionDigits: 1 })
+      : Math.round(n).toLocaleString(tag);
+
+  return (
+    <StatCard
+      title={def.name}
+      value={val ? display : "…"}
+      subtitle={
+        cmp?.change_pct != null
+          ? <ChangeBadge pct={cmp.change_pct} invert={def.source === "isg"} />
+          : `${def.source}.${def.field}`
+      }
+      icon={BarChart3}
+      accent="cyan"
+    />
+  );
+}
+
 export default function HomeKpiBoard({
   summary,
   compare,
@@ -101,22 +153,36 @@ export default function HomeKpiBoard({
   unread,
   presenceAvg,
   ChangeBadge,
+  customKpis = [],
 }) {
   const { t } = useLocale();
-  const { user } = useAuth();
-  const [ids, setIds] = useState(() => loadIds(user?.id));
+  const { user, setUser } = useAuth();
+  const layoutIds = user?.dashboard_layout?.home_kpi_ids;
+  const [ids, setIds] = useState(() => loadIds(user?.id, layoutIds));
   const [adding, setAdding] = useState(false);
+
+  const pinnedCustom = useMemo(
+    () => (customKpis || []).filter((k) => k.pin_home),
+    [customKpis]
+  );
 
   const available = CATALOG.filter((c) => !ids.includes(c.id));
 
-  const update = (next) => {
+  const persistHomeIds = async (next) => {
     setIds(next);
     saveIds(user?.id, next);
+    const layout = { ...(user?.dashboard_layout || {}), home_kpi_ids: next, custom_kpis: customKpis || user?.dashboard_layout?.custom_kpis || [] };
+    try {
+      await api.savePreferences(layout, user?.onboarding_done);
+      setUser((u) => ({ ...u, dashboard_layout: layout }));
+    } catch {
+      /* local ok */
+    }
   };
 
-  const remove = (id) => update(ids.filter((x) => x !== id));
+  const remove = (id) => persistHomeIds(ids.filter((x) => x !== id));
   const add = (id) => {
-    if (!ids.includes(id)) update([...ids, id]);
+    if (!ids.includes(id)) persistHomeIds([...ids, id]);
     setAdding(false);
   };
 
@@ -179,6 +245,11 @@ export default function HomeKpiBoard({
             </div>
           );
         })}
+        {pinnedCustom.map((def) => (
+          <div key={def.id} className="home-kpi-card-wrap home-kpi-card-wrap--custom">
+            <CustomKpiCard def={def} ChangeBadge={ChangeBadge} />
+          </div>
+        ))}
       </section>
     </div>
   );

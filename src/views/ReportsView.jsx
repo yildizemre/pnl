@@ -105,14 +105,18 @@ export default function ReportsView({ data }) {
     }
   };
 
-  const downloadReport = async (format) => {
-    setExporting(format);
+  const downloadReport = async (format, kind = "isg_haftalik") => {
+    setExporting(`${kind}-${format}`);
     try {
-      const blob = await api.exportReport(t.raporOzetBaslik, format);
+      const blob = await api.exportReport(
+        kind === "mes" ? t.personelPresenceTablo : kind === "bildirimler" ? t.bildirimler : t.isgHaftalikPdf,
+        format,
+        { kind, period: kind === "mes" ? "hafta" : "hafta", tarih: date }
+      );
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `hypevision-rapor-${date}.${format}`;
+      a.download = `${kind}_${date}.${format === "xlsx" ? "xlsx" : "pdf"}`;
       a.click();
       URL.revokeObjectURL(url);
     } catch (e) {
@@ -137,13 +141,21 @@ export default function ReportsView({ data }) {
         showGranularity={false}
         extra={
           <div className="reports-actions">
-            <button type="button" onClick={() => downloadReport("pdf")} className="btn-secondary shrink-0" disabled={!!exporting}>
+            <button type="button" onClick={() => downloadReport("pdf", "isg_haftalik")} className="btn-secondary shrink-0" disabled={!!exporting}>
               <Download className="h-4 w-4" />
-              {exporting === "pdf" ? "…" : t.raporExportPdf}
+              {exporting === "isg_haftalik-pdf" ? "…" : t.isgHaftalikPdf}
             </button>
-            <button type="button" onClick={() => downloadReport("xlsx")} className="btn-secondary shrink-0" disabled={!!exporting}>
+            <button type="button" onClick={() => downloadReport("xlsx", "isg_haftalik")} className="btn-secondary shrink-0" disabled={!!exporting}>
               <FileSpreadsheet className="h-4 w-4" />
-              {exporting === "xlsx" ? "…" : t.raporExportExcel}
+              {exporting === "isg_haftalik-xlsx" ? "…" : t.isgHaftalikExcel}
+            </button>
+            <button type="button" onClick={() => downloadReport("xlsx", "mes")} className="btn-secondary shrink-0" disabled={!!exporting}>
+              <FileSpreadsheet className="h-4 w-4" />
+              {exporting === "mes-xlsx" ? "…" : t.mesExcel}
+            </button>
+            <button type="button" onClick={() => downloadReport("xlsx", "bildirimler")} className="btn-secondary shrink-0" disabled={!!exporting}>
+              <FileSpreadsheet className="h-4 w-4" />
+              {exporting === "bildirimler-xlsx" ? "…" : t.bildirimExcel}
             </button>
             <button type="button" onClick={sendDaily} className="btn-secondary shrink-0">
               <Mail className="h-4 w-4" />

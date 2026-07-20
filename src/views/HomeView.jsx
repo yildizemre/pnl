@@ -1,20 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
-import {
-  Area, AreaChart, CartesianGrid,
-  ResponsiveContainer, Tooltip, XAxis, YAxis,
-} from "recharts";
 import { LayoutDashboard, MessageSquare, ChevronDown, ChevronUp } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
 import { useLocale } from "../context/LocaleContext";
 import { api } from "../api";
-import { CHART, axisTick, gridStroke } from "../lib/chartTheme";
 import { computeRiskScore } from "../data/operationsCenter";
+import { buildActionRequiredItems } from "../data/actionFeed";
 import CompareToggle from "../components/CompareToggle";
 import CameraCapabilityList from "../components/CameraCapabilityList";
-import { EmptyChart } from "../components/EmptyState";
-import { ChartTooltipTraffic, Panel } from "../components/ui";
+import { Panel } from "../components/ui";
 import AiAssistant from "../components/experience/AiAssistant";
-import { HomeInsightsPanel, HomeSystemPanel } from "../components/operations/VocPanels";
+import ActionRequiredFeed from "../components/experience/ActionRequiredFeed";
+import { HomeInsightsPanel } from "../components/operations/VocPanels";
 import HomeKpiBoard from "../components/HomeKpiBoard";
 import IsgHeroBanner from "../components/isg/IsgHeroBanner";
 import EventCategoryPanel from "../components/isg/EventCategoryPanel";
@@ -37,30 +33,59 @@ function ChangeBadge({ pct, invert = false }) {
   );
 }
 
-export default function HomeView({ data, compare, onCompareChange }) {
+export default function HomeView({ data, compare, onCompareChange, onNavigate, onNotificationOpen }) {
   const { t, locale } = useLocale();
   const { user } = useAuth();
   const [view, setView] = useState("main");
   const [trend, setTrend] = useState([]);
+  const [hats, setHats] = useState([]);
+  const [hatA, setHatA] = useState("");
+  const [hatB, setHatB] = useState("");
+  const [hatCompare, setHatCompare] = useState(null);
 
   const s = data.summary;
-  const cmp = data.compare;
-  const compareActive = !!compare;
+  const cmp = compare === "hat" ? hatCompare : data.compare;
+  const compareActive = !!compare && compare !== "hat";
   const risk = useMemo(
     () => computeRiskScore(s, data.today_notifications || data.notifications),
     [s, data.today_notifications, data.notifications]
   );
-
-  const traffic = useMemo(() => {
-    if (compareActive && cmp?.traffic?.length) return cmp.traffic;
-    return data.traffic || [];
-  }, [compareActive, cmp, data.traffic]);
 
   useEffect(() => {
     const tarih = data.dates?.[0];
     if (!tarih) return;
     api.reportsKpis(tarih).then((r) => setTrend(r.trend || [])).catch(() => setTrend([]));
   }, [data.dates, user?.id]);
+
+  useEffect(() => {
+    const list = (data.product_counts?.hatlar || []).map((h) => h.hat).filter(Boolean);
+    if (list.length) {
+      setHats(list);
+      setHatA((a) => a || list[0]);
+      setHatB((b) => b || list[1] || list[0]);
+      return;
+    }
+    api.sayimCounts(data.today || data.dates?.[0], "saat")
+      .then((r) => {
+        const hs = (r.hatlar || []).map((h) => h.hat).filter(Boolean);
+        setHats(hs);
+        if (hs[0]) setHatA(hs[0]);
+        if (hs[1]) setHatB(hs[1]);
+        else if (hs[0]) setHatB(hs[0]);
+      })
+      .catch(() => {});
+  }, [data.product_counts, data.today, data.dates]);
+
+  useEffect(() => {
+    if (compare !== "hat" || !hatA || !hatB) {
+      setHatCompare(null);
+      return;
+    }
+    api.kpiCompare(
+      { source: "sayim", field: "toplam_adet", period: "gun", dimension: "none" },
+      { mode: "hat", hat_a: hatA, hat_b: hatB }
+    ).then(setHatCompare).catch(() => setHatCompare(null));
+  }, [compare, hatA, hatB]);
 
   const sparklines = useMemo(() => {
     const last7 = trend.slice(-7);
@@ -84,13 +109,50 @@ export default function HomeView({ data, compare, onCompareChange }) {
   const presenceAvg = data.productivity?.ortalama_yerinde;
   const notifs = data.notifications || [];
   const todayNotifs = data.today_notifications || notifs.filter((n) => n.tarih === data.dates?.[0]);
+  const customKpis = data.custom_kpis || user?.dashboard_layout?.custom_kpis || [];
+
+  const actionItems = useMemo(() => {
+    const fromNotifs = buildActionRequiredItems(todayNotifs.length ? todayNotifs : notifs, s, locale);
+    // Gerçek bildirim başlıklarını tercih et
+    return (fromNotifs || []).slice(0, 6).map((item, i) => {
+      const src = (todayNotifs.length ? todayNotifs : notifs).find((n) => String(n.id) === String(item.id))
+        || (todayNotifs.length ? todayNotifs : notifs)[i];
+      if (!src) return item;
+      return {
+        ...item,
+        message: src.baslik || item.message,
+        camera: src.kamera || item.camera,
+        time: src.zaman || item.time,
+        severity: src.seviye || item.severity,
+        raw: src,
+      };
+    });
+  }, [todayNotifs, notifs, s, locale]);
+
+  const openAction = (item) => {
+    if (item?.raw && onNotificationOpen) {
+      onNotificationOpen(item.raw);
+      return;
+    }
+    onNavigate?.("bildirimler");
+  };
 
   return (
-    <div className="dash-home">
+    <div className="dash-home dash-home--overview">
+      {/* 1. İSG durum — müşteri ilk bakış */}
       <IsgHeroBanner summary={s} todayNotifications={todayNotifs} />
 
       <div className="dash-home-bar">
-        <CompareToggle value={compare} onChange={onCompareChange} compare={cmp} />
+        <CompareToggle
+          value={compare}
+          onChange={onCompareChange}
+          compare={cmp}
+          hats={hats}
+          hatA={hatA}
+          hatB={hatB}
+          onHatA={setHatA}
+          onHatB={setHatB}
+        />
         <div className="dash-view-pills" role="tablist">
           {VIEWS.map(({ id, icon: Icon, labelKey }) => (
             <button
@@ -110,6 +172,7 @@ export default function HomeView({ data, compare, onCompareChange }) {
 
       {view === "main" && (
         <>
+          {/* 2. KPI özet */}
           <HomeKpiBoard
             summary={s}
             compare={cmp}
@@ -120,62 +183,30 @@ export default function HomeView({ data, compare, onCompareChange }) {
             unread={s.bildirim_sayisi ?? 0}
             presenceAvg={presenceAvg}
             ChangeBadge={ChangeBadge}
+            customKpis={customKpis}
           />
 
-          <section className="dash-isg-grid">
-            <EventCategoryPanel notifications={notifs} />
-            <Panel
-              title={t.sistemAktivitesi}
-              subtitle={compareActive ? t.compareTrafficSub : t.son24Saat}
-              badge={<span className="live-pill">{t.canli}</span>}
-            >
-              {traffic.length ? (
-                <ResponsiveContainer width="100%" height={220}>
-                  <AreaChart data={traffic}>
-                    <defs>
-                      <linearGradient id="dashTrafficGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor={CHART.emerald} stopOpacity={0.35} />
-                        <stop offset="100%" stopColor={CHART.emerald} stopOpacity={0} />
-                      </linearGradient>
-                      {compareActive && (
-                        <linearGradient id="dashTrafficPrev" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor={CHART.sky} stopOpacity={0.2} />
-                          <stop offset="100%" stopColor={CHART.sky} stopOpacity={0} />
-                        </linearGradient>
-                      )}
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} vertical={false} />
-                    <XAxis dataKey="saat" tick={axisTick} axisLine={false} tickLine={false} />
-                    <YAxis tick={axisTick} axisLine={false} tickLine={false} />
-                    <Tooltip content={<ChartTooltipTraffic />} />
-                    {compareActive && (
-                      <Area
-                        type="monotone"
-                        dataKey="kisi_once"
-                        name={t.oncekiDonem}
-                        stroke={CHART.sky}
-                        strokeWidth={1.5}
-                        strokeDasharray="4 3"
-                        fill="url(#dashTrafficPrev)"
-                      />
-                    )}
-                    <Area type="monotone" dataKey="kisi" name={t.buDonem} stroke={CHART.emerald} strokeWidth={2} fill="url(#dashTrafficGrad)" />
-                  </AreaChart>
-                </ResponsiveContainer>
-              ) : (
-                <EmptyChart />
-              )}
-            </Panel>
+          {/* 3. Aksiyon + olay kategorileri — asıl iş */}
+          <section className="dash-isg-grid dash-isg-grid--priority">
+            {actionItems.length > 0 ? (
+              <ActionRequiredFeed items={actionItems} onSelect={openAction} />
+            ) : (
+              <Panel title={t.aksiyonGerektiren} subtitle={t.aksiyonGerektirenAlt}>
+                <p className="home-empty-hint">{t.isgHeroNoAccident || t.bildirimBulunamadi}</p>
+              </Panel>
+            )}
+            <EventCategoryPanel notifications={todayNotifs.length ? todayNotifs : notifs} />
           </section>
 
+          {/* 4. İSG trend */}
           <IsgTrendCharts notifications={notifs} />
 
+          {/* 5. Alt bilgi — kameralar / sistem (trafik grafiği yok) */}
           <section className="dash-footer">
             <HomeInsightsPanel data={data} />
             <Panel title={t.kameraOzellikler} subtitle={t.kameraKonum} className="dash-footer-cameras">
               <CameraCapabilityList trackedCameras={data.tracked_cameras} compact />
             </Panel>
-            <HomeSystemPanel data={data} />
           </section>
         </>
       )}

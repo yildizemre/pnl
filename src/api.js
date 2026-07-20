@@ -70,7 +70,15 @@ export const api = {
   updateUser: (userId, body) =>
     fetchJson(`/api/admin/users/${userId}`, { method: "PATCH", body: JSON.stringify(body) }),
   deleteUser: (userId) => fetchJson(`/api/admin/users/${userId}`, { method: "DELETE" }),
-  mesProductivity: (tarih) => fetchJson(`/api/mes/productivity${tarih ? `?tarih=${tarih}` : ""}`),
+  mesProductivity: (tarih, period = "gun") => {
+    const q = new URLSearchParams();
+    if (tarih) q.set("tarih", tarih);
+    if (period) q.set("period", period);
+    const qs = q.toString();
+    return fetchJson(`/api/mes/productivity${qs ? `?${qs}` : ""}`);
+  },
+  notificationAction: (id, body) =>
+    fetchJson(`/api/notifications/${id}/action`, { method: "PATCH", body: JSON.stringify(body) }),
   reportsKpis: (tarih) => fetchJson(`/api/reports/kpis${tarih ? `?tarih=${tarih}` : ""}`),
   heartbeat: (camera_id) =>
     fetchJson("/api/heartbeat", { method: "POST", body: JSON.stringify({ camera_id }) }),
@@ -89,15 +97,58 @@ export const api = {
   createApiKey: (userId, label) =>
     fetchJson(`/api/admin/users/${userId}/api-keys`, { method: "POST", body: JSON.stringify({ label }) }),
   deleteApiKey: (keyId) => fetchJson(`/api/admin/api-keys/${keyId}`, { method: "DELETE" }),
-  productCounts: (tarih) => fetchJson(`/api/counts/products${tarih ? `?tarih=${tarih}` : ""}`),
+  productCounts: (tarih, period = "saat") => {
+    const q = new URLSearchParams();
+    if (tarih) q.set("tarih", tarih);
+    if (period) q.set("period", period);
+    const qs = q.toString();
+    return fetchJson(`/api/counts/sayim${qs ? `?${qs}` : ""}`);
+  },
+  sayimCounts: (tarih, period = "saat") => {
+    const q = new URLSearchParams();
+    if (tarih) q.set("tarih", tarih);
+    if (period) q.set("period", period);
+    const qs = q.toString();
+    return fetchJson(`/api/counts/sayim${qs ? `?${qs}` : ""}`);
+  },
+  kpiCatalog: () => fetchJson("/api/kpi/catalog"),
+  kpiQuery: (definition, tarih) => {
+    const q = tarih ? `?tarih=${encodeURIComponent(tarih)}` : "";
+    return fetchJson(`/api/kpi/query${q}`, { method: "POST", body: JSON.stringify(definition) });
+  },
+  kpiCompare: (definition, opts = {}) => {
+    const q = new URLSearchParams({ mode: opts.mode || "bugun_dun" });
+    if (opts.tarih) q.set("tarih", opts.tarih);
+    if (opts.hat_a) q.set("hat_a", opts.hat_a);
+    if (opts.hat_b) q.set("hat_b", opts.hat_b);
+    return fetchJson(`/api/kpi/compare?${q}`, { method: "POST", body: JSON.stringify(definition) });
+  },
+  kpiCompareSummary: (mode, tarih) => {
+    const q = new URLSearchParams({ mode: mode || "bugun_dun" });
+    if (tarih) q.set("tarih", tarih);
+    return fetchJson(`/api/kpi/compare-summary?${q}`);
+  },
+  kpiSaveCustom: (custom_kpis, home_kpi_ids) =>
+    fetchJson("/api/kpi/custom", {
+      method: "PUT",
+      body: JSON.stringify({ custom_kpis, home_kpi_ids }),
+    }),
   notificationInsights: (tarih) => fetchJson(`/api/notifications/insights${tarih ? `?tarih=${tarih}` : ""}`),
   changePassword: (mevcut_sifre, yeni_sifre) =>
     fetchJson("/api/settings/password", {
       method: "POST",
       body: JSON.stringify({ mevcut_sifre, yeni_sifre }),
     }),
-  exportReport: (title, format = "pdf") =>
-    fetchBlob(`/api/reports/export?title=${encodeURIComponent(title)}&format=${format}`),
+  exportReport: (title, format = "pdf", opts = {}) => {
+    const q = new URLSearchParams({
+      title: title || "HypeVision",
+      format,
+      kind: opts.kind || "isg_haftalik",
+      period: opts.period || "hafta",
+    });
+    if (opts.tarih) q.set("tarih", opts.tarih);
+    return fetchBlob(`/api/reports/export?${q.toString()}`);
+  },
   dailyEmail: () => fetchJson("/api/reports/daily-email", { method: "POST" }),
   integrationStatus: () => fetchJson("/api/user/integration"),
   integrationTest: () => fetchJson("/api/user/integration/test", { method: "POST" }),
