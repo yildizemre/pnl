@@ -29,12 +29,12 @@ export const NAV_SECTIONS = [
   {
     id: "raporlar",
     labelKey: "navSectionRaporlar",
-    modules: ["raporlar"],
+    modules: ["raporlar", "kamera_sagligi"],
   },
   {
     id: "hesap",
     labelKey: "navSectionHesap",
-    modules: ["uyelik", "ayarlar"],
+    modules: ["sirket", "uyelik", "ayarlar"],
   },
 ];
 
@@ -45,6 +45,9 @@ export const PANEL_MODULES = [
   { id: "sayim", labelKey: "modSayim", locked: false },
   { id: "kpi", labelKey: "modKpi", locked: false },
   { id: "raporlar", labelKey: "modRaporlar", locked: false },
+  { id: "kamera_sagligi", labelKey: "modKameraSagligi", locked: false },
+  { id: "sirket", labelKey: "modSirket", locked: false },
+  { id: "uyelik", labelKey: "modUyelik", locked: false },
   { id: "ayarlar", labelKey: "modAyarlar", locked: false },
 ];
 
