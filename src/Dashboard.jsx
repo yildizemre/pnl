@@ -364,33 +364,39 @@ export default function Dashboard() {
       )}
 
       <aside
-        className={`sidebar-shell fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r border-[var(--border)] bg-[var(--bg-sidebar)] transition-transform duration-300 lg:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r border-white/10 transition-transform duration-300 lg:translate-x-0 ${
           sidebarOpen ? "translate-x-0" : "-translate-x-full"
         }`}
+        style={{
+          background: 'linear-gradient(180deg, #0B3C5D 0%, #071E2E 100%)',
+          boxShadow: '4px 0 24px rgba(7, 30, 46, 0.4)',
+        }}
       >
-        <div className="sidebar-brand relative w-full border-b border-[var(--border)] px-5 py-5">
+        <div className="relative w-full border-b border-white/10 px-5 py-5 text-center">
           <button
             type="button"
-            className="absolute right-3 top-4 rounded-lg p-1 text-[var(--text-muted)] hover:bg-[var(--bg-hover)] lg:hidden"
+            className="absolute right-3 top-4 rounded-lg p-1 text-white/60 hover:bg-white/10 lg:hidden"
             onClick={() => setSidebarOpen(false)}
           >
             <X className="h-5 w-5" />
           </button>
           <HypeLogo centered className="h-8 w-auto max-w-[152px]" />
-          <p className="sidebar-tagline w-full text-center" lang="en">{t.sidebarTagline}</p>
+          <p className="mt-1 w-full text-center text-[9px] font-bold uppercase tracking-widest text-[#00BCD4]">
+            AI ANALYTICS CORP
+          </p>
         </div>
-        <nav className="flex-1 space-y-4 overflow-y-auto overflow-x-hidden px-2 py-4 lg:px-3">
+        <nav className="flex-1 space-y-3 overflow-y-auto overflow-x-hidden px-3 py-4">
           {menuSections.map((sec) => (
-            <div key={sec.id} className="nav-section">
+            <div key={sec.id} className="space-y-1">
               {sec.label && (
-                <div className="nav-section-head">
-                  <span className="nav-section-label">{sec.label}</span>
-                  <span className="nav-section-line" aria-hidden />
+                <div className="px-2 pt-2 pb-1">
+                  <span className="text-[9px] font-extrabold uppercase tracking-widest text-white/35">{sec.label}</span>
                 </div>
               )}
-              <div className="space-y-1">
-                {sec.items.map(({ id, label, icon: Icon, locked }) => {
-                  const unreadBadge = !locked && id === "bildirimler"
+              <div className="space-y-0.5">
+                {sec.items.map(({ id, label, icon: Icon }) => {
+                  const isActive = activeMenu === id;
+                  const unreadBadge = id === "bildirimler"
                     ? (live?.unread ?? data?.summary?.bildirim_sayisi ?? 0)
                     : 0;
                   return (
@@ -398,27 +404,24 @@ export default function Dashboard() {
                       key={id}
                       type="button"
                       onClick={() => navigate(id)}
-                      data-label={label}
-                      title={locked ? t.erisimKisitli : label}
-                      className={`nav-item flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-sm font-medium transition ${
-                        locked
-                          ? "nav-item--locked"
-                          : activeMenu === id
-                            ? "nav-active"
-                            : "text-[var(--text-muted)] border-transparent hover:bg-[var(--bg-hover)]"
+                      className={`relative flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-xs font-semibold transition-all ${
+                        isActive
+                          ? "bg-[#00BCD4]/15 text-white shadow-[inset_0_0_0_1px_rgba(0,188,212,0.3)]"
+                          : "text-white/60 hover:bg-white/5 hover:text-white"
                       }`}
                     >
-                      <span className="relative shrink-0">
-                        <Icon className="h-4 w-4" />
-                        {unreadBadge > 0 && (
-                          <span className="sidebar-badge">{unreadBadge > 9 ? "9+" : unreadBadge}</span>
-                        )}
+                      {isActive && (
+                        <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-[#00BCD4] rounded-r-full shadow-[0_0_8px_#00BCD4]" />
+                      )}
+                      <span style={{ color: isActive ? '#00BCD4' : 'rgba(255,255,255,0.6)' }}>
+                        <Icon className="h-4 w-4 shrink-0" />
                       </span>
-                      <span className="nav-item-label min-w-0 flex-1 text-left">
-                        <span className="block truncate">{label}</span>
-                        {locked && <span className="nav-lock-hint">{t.erisimKisitli}</span>}
-                      </span>
-                      {locked && <Lock className="h-3.5 w-3.5 shrink-0 opacity-70" />}
+                      <span className="min-w-0 flex-1 text-left truncate">{label}</span>
+                      {unreadBadge > 0 && (
+                        <span className="rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-bold text-white shadow-sm">
+                          {unreadBadge > 9 ? "9+" : unreadBadge}
+                        </span>
+                      )}
                     </button>
                   );
                 })}
@@ -426,21 +429,10 @@ export default function Dashboard() {
             </div>
           ))}
         </nav>
-        <div className="border-t border-[var(--border)] p-3">
-          <div className="flex items-center justify-between rounded-lg border border-[var(--border)] px-3 py-2 text-[11px] text-[var(--text-muted)]">
-            <span>{t.vocSysHealth}</span>
-            <span className={
-              (data?.system_health?.overall || live?.system_health?.overall) === "ok"
-                ? "text-emerald-500 font-semibold"
-                : (data?.system_health?.overall || live?.system_health?.overall) === "fail"
-                  ? "text-red-500 font-semibold"
-                  : "text-amber-500 font-semibold"
-            }>
-              {locale === "EN"
-                ? (data?.system_health?.overallEn || live?.system_health?.overallEn || t.vocSysHealthOk)
-                : (data?.system_health?.overallTr || live?.system_health?.overallTr || t.vocSysHealthOk)}
-            </span>
-          </div>
+        <div className="border-t border-white/10 p-4 text-center">
+          <p className="font-serif italic text-white/80 text-sm tracking-wide mb-0.5 font-display">Hype-Vision Lab</p>
+          <p className="text-[9px] text-[#00BCD4] font-bold tracking-widest uppercase">PLATFORM MODELİ</p>
+          <p className="text-[10px] text-white/60 font-semibold mt-0.5">HypeVision v2.1 Pro</p>
         </div>
       </aside>
 
