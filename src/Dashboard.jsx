@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState, useMemo } from "react";
 import { menuFromPath, pathForMenu } from "./lib/routes";
 import { usePageMeta } from "./hooks/usePageMeta";
 import {
+  Activity,
+  Building,
   FileBarChart,
   Home,
   Lock,
@@ -28,6 +30,8 @@ import MesView from "./views/MesView";
 import SayimView from "./views/SayimView";
 import KpiStudioView from "./views/KpiStudioView";
 import ReportsView from "./views/ReportsView";
+import CameraHealthView from "./views/CameraHealthView";
+import CompanyManagementView from "./views/CompanyManagementView";
 import SettingsView from "./views/SettingsView";
 import AdminUsersView from "./views/AdminUsersView";
 import PageTransition from "./components/PageTransition";
@@ -42,6 +46,8 @@ const ICONS = {
   sayim: Package,
   kpi: Sparkles,
   raporlar: FileBarChart,
+  kamera_sagligi: Activity,
+  sirket: Building,
   uyelik: Users,
   ayarlar: Settings,
 };
@@ -53,7 +59,10 @@ const VIEW_MAP = {
   sayim: SayimView,
   kpi: KpiStudioView,
   raporlar: ReportsView,
+  kamera_sagligi: CameraHealthView,
+  sirket: CompanyManagementView,
   uyelik: AdminUsersView,
+  ayarlar: SettingsView,
 };
 
 const MENU_LABELS = {
@@ -63,6 +72,8 @@ const MENU_LABELS = {
   sayim: "sayim",
   kpi: "kpiStudio",
   raporlar: "raporlar",
+  kamera_sagligi: "kameraSagligi",
+  sirket: "sirketYonetimi",
   uyelik: "uyelik",
   ayarlar: "ayarlar",
 };
@@ -110,17 +121,11 @@ export default function Dashboard() {
   const isAdmin = user?.rol === "admin" && !isImpersonating;
 
   const allowedModules = useMemo(() => {
-    const list = (user?.moduller || ["ana", "bildirimler", "mes", "sayim", "kpi", "raporlar", "ayarlar"]).filter(
+    const list = (user?.moduller || ["ana", "bildirimler", "mes", "sayim", "kpi", "raporlar", "kamera_sagligi", "sirket", "uyelik", "ayarlar"]).filter(
       (id) => id !== "urun"
     );
-    if (!list.includes("sayim") && list.includes("mes")) {
-      const i = list.indexOf("mes");
-      list.splice(i + 1, 0, "sayim");
-    }
-    if (!list.includes("kpi") && (list.includes("sayim") || list.includes("raporlar"))) {
-      const i = list.indexOf("sayim");
-      list.splice(i >= 0 ? i + 1 : list.indexOf("raporlar"), 0, "kpi");
-    }
+    if (!list.includes("kamera_sagligi")) list.push("kamera_sagligi");
+    if (!list.includes("sirket")) list.push("sirket");
     if (isAdmin && !list.includes("uyelik")) list.push("uyelik");
     return list;
   }, [user?.moduller, isAdmin]);

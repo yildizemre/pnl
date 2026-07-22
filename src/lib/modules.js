@@ -51,12 +51,12 @@ export const PANEL_MODULES = [
   { id: "ayarlar", labelKey: "modAyarlar", locked: false },
 ];
 
-export const DEFAULT_USER_MODULES = ["ana", "bildirimler", "mes", "sayim", "kpi", "raporlar", "ayarlar"];
+export const DEFAULT_USER_MODULES = ["ana", "bildirimler", "mes", "sayim", "kpi", "raporlar", "kamera_sagligi", "sirket", "uyelik", "ayarlar"];
 
 export function modulesForRole(rol) {
   const map = {
-    admin: ["ana", "bildirimler", "mes", "sayim", "kpi", "raporlar", "ayarlar"],
-    isg: ["ana", "bildirimler", "kpi", "raporlar", "ayarlar"],
+    admin: ["ana", "bildirimler", "mes", "sayim", "kpi", "raporlar", "kamera_sagligi", "sirket", "uyelik", "ayarlar"],
+    isg: ["ana", "bildirimler", "kpi", "raporlar", "kamera_sagligi", "ayarlar"],
     uretim_muduru: ["ana", "mes", "sayim", "kpi", "raporlar", "ayarlar"],
     operator: ["ana", "bildirimler", "ayarlar"],
     user: DEFAULT_USER_MODULES,

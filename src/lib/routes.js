@@ -8,6 +8,8 @@ export const PAGE_ROUTES = {
   kpi: { path: "/kpi", titleKey: "kpiStudio" },
   urun: { path: "/products", titleKey: "urun" },
   raporlar: { path: "/reports", titleKey: "raporlar" },
+  kamera_sagligi: { path: "/kamera-sagligi", titleKey: "kameraSagligi" },
+  sirket: { path: "/sirket", titleKey: "sirketYonetimi" },
   uyelik: { path: "/users", titleKey: "uyelik" },
   ayarlar: { path: "/settings", titleKey: "ayarlar" },
 };
